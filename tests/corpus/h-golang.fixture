@@ -18,7 +18,7 @@ type Config struct {
 }
 
 var defaultConfig = Config{
-	Host:     "db01.internal",
+	Host:     "⟦HOST:db01.internal⟧",
 	User:     "svc_reports",
 	Password: "⟦PASSWORD:G0pher#Reports1⟧",
 	Token:    os.Getenv("REPORTS_TOKEN"),

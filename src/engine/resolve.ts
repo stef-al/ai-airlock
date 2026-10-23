@@ -100,7 +100,8 @@ export function resolveHits(doc: Doc, inputs: ResolveInput[], settings: Settings
     let upgrade = true;
     for (const id of inside) {
       const a = ok[id];
-      if (!(x.start <= a.start && a.end <= x.end && x.end - x.start > a.end - a.start && a.priority !== 3)) {
+      // only user lists/rules (priority 4) give way to a longer automatic hit around them
+      if (!(x.start <= a.start && a.end <= x.end && x.end - x.start > a.end - a.start && a.priority === 4 && x.priority < 4)) {
         upgrade = false;
         break;
       }

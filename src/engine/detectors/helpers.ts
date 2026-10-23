@@ -5,7 +5,7 @@ export const CAT_OF_TYPE: Record<string, Category> = {
   PASSWORD: 'secret', SECRET: 'secret', TOKEN: 'secret', API_KEY: 'secret', PIN: 'secret', JWT: 'secret',
   PRIVATE_KEY: 'secret', PASSWORD_HASH: 'secret', COOKIE: 'secret',
   EMAIL: 'personal', PHONE: 'personal', PERSON: 'personal', ORG: 'personal', DOB: 'personal', SSN: 'personal',
-  NATIONAL_ID: 'personal', USERNAME: 'personal',
+  NATIONAL_ID: 'personal', USERNAME: 'personal', NINO: 'personal', BIRTH_NUMBER: 'personal', PESEL: 'personal',
   IBAN: 'financial', CARD: 'financial', CVV: 'financial', CARD_EXPIRY: 'financial',
   IP: 'network', IPV6: 'network', MAC: 'network', HOST: 'network',
 };

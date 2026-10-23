@@ -9,7 +9,7 @@ app_version: 3.14.2
 ansible_user: deploy
 ansible_password: ⟦PASSWORD:Tr1cky-Pa55!⟧
 ansible_become_pass: "⟦PASSWORD:sudo#Pw2024⟧"
-db_host: db01.staging.internal
+db_host: ⟦HOST:db01.staging.internal⟧
 db_port: 5432
 db_user: billing
 db_password: ⟦PASSWORD:c0rrectHorse9⟧

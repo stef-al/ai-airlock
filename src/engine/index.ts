@@ -4,6 +4,11 @@ import { secretsKnown } from './detectors/secrets-known';
 import { emailDetector, phoneDetector } from './detectors/contact';
 import { cardDetector, ibanDetector } from './detectors/financial';
 import { columnsDetector, listsDetector, regexDetector } from './detectors/custom';
+import { idsDetector } from './detectors/ids';
+import { personDetector } from './detectors/names';
+import { hostDetector, ipDetector, macDetector } from './detectors/network';
+import { orgDetector } from './detectors/orgs';
+import { dobDetector, usernameDetector } from './detectors/personal';
 import { maskHits, type MaskResult } from './mask';
 import { Mapping } from './placeholders';
 import { resolveHits, type ResolveInput } from './resolve';
@@ -37,6 +42,15 @@ export const BASE_DETECTORS: Detector[] = [
   listsDetector,
   regexDetector,
   columnsDetector,
+  // tier 2
+  personDetector,
+  orgDetector,
+  ipDetector,
+  macDetector,
+  hostDetector,
+  usernameDetector,
+  dobDetector,
+  idsDetector,
 ];
 
 export function allDetectors(): Detector[] {

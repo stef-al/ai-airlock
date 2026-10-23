@@ -20,7 +20,7 @@ public class DataSourceConfig {
     private final String apiKey = "⟦API_KEY:{{ant:41}}⟧";
 
     public Connection connect() throws Exception {
-        String url = "jdbc:postgresql://db01.internal:5432/billing";
+        String url = "jdbc:postgresql://⟦HOST:db01.internal⟧:5432/billing";
         return DriverManager.getConnection(url, "billing_rw", "⟦PASSWORD:Rw!9sT0rm⟧");
     }
 

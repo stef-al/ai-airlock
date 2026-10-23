@@ -93,3 +93,12 @@ export function regionFromLocale(loc?: string): string {
   return (m ? m[1] : 'US').toUpperCase();
 }
 
+
+/** Typed access to Settings.options with a default. */
+export function opt<T extends boolean | string | string[]>(s: Settings, key: string, def: T): T {
+  const v = s.options?.[key];
+  return (v === undefined ? def : (v as T)) as T;
+}
+
+export const DEFAULT_HOST_SUFFIXES = ['internal', 'local', 'lan', 'corp', 'intranet', 'home', 'localdomain', 'private'];
+export const ID_PACK_IDS = ['us-ssn', 'uk-nino', 'cz-sk-birth-number', 'pl-pesel'];

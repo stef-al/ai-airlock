@@ -1,0 +1,16 @@
+#! name: service agreement (organizations, titles, birth date)
+#! file: agreement.txt
+#!---
+SERVICE AGREEMENT
+
+This agreement is made on 12 March 2024 between ⟦ORG:Globex Solutions Ltd⟧ ("Supplier") and ⟦ORG:Initech Software Inc⟧ ("Customer").
+The Supplier's subcontractors are ⟦ORG:Brandt & Söhne GmbH⟧, ⟦ORG:Müller Maschinenbau AG⟧, ⟦ORG:Dupont et Fils S.A.S.⟧,
+⟦ORG:Kowalski Sp. z o.o.⟧, ⟦ORG:Novák Stavby s.r.o.⟧, ⟦ORG:Janssen Logistiek B.V.⟧, ⟦ORG:Rossi Impianti S.r.l.⟧ and ⟦ORG:Pérez y Hermanos S.L.⟧.
+⟦ORG:Globex Solutions⟧ will deliver the work; ⟦ORG:Initech Software⟧ may inspect it.
+
+Signed for the Supplier by Mr ⟦PERSON:Daniel Okafor⟧, and for the Customer by Ms ⟦PERSON:Elena Petrova⟧.
+Technical questions go to Prof. ⟦PERSON:Hannah Berg⟧ or Dr. ⟦PERSON:Wojciechowski⟧.
+Date of birth of the signatory: ⟦DOB:3 March 1979⟧.
+
+The Limited warranty applies for 12 months. The Company shall act in good faith and Company policy is attached.
+See Terms and Conditions, the Product Roadmap and the Spring Release Team notes. Contact Support Team for help.

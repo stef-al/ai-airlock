@@ -2,7 +2,7 @@
 #! file: app.log
 #!---
 2024-08-15 10:30:45,123 INFO  [main] c.a.AuthService - Password reset requested for user id=42
-2024-08-15 10:30:46,001 INFO  [http-1] c.a.Login - login user=⟦EMAIL:sam.green@acme-industries.com⟧ password=⟦PASSWORD:L0g-Pw#31⟧ from 10.0.0.5
+2024-08-15 10:30:46,001 INFO  [http-1] c.a.Login - login user=⟦EMAIL:sam.green@acme-industries.com⟧ password=⟦PASSWORD:L0g-Pw#31⟧ from ⟦IP:10.0.0.5⟧
 2024-08-15 10:30:47,210 DEBUG [http-2] c.a.Http - GET https://api.example.com/v1/items?page=2&access_token=⟦TOKEN:{{rand:36:251}}⟧ 200 35ms
 2024-08-15 10:30:48,333 WARN  [http-3] c.a.Jwt - rejected token ⟦TOKEN:{{jwt:252}}⟧ (expired)
 2024-08-15 10:30:49,872 ERROR [worker-1] c.a.Db - connection failed: jdbc:postgresql://db01:5432/billing?user=app&password=⟦PASSWORD:Jdb-C-Pw7⟧

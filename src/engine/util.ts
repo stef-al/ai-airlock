@@ -1,7 +1,7 @@
 import type { Doc, Segment, SegScope } from './types';
 
 export function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\\/-]/g, '\\$&');
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); // valid under the u flag too (no \- or \/)
 }
 
 /** Shannon entropy in bits per character. */
@@ -96,4 +96,32 @@ export function lineBounds(text: string, pos: number): [number, number] {
 
 export function clamp(n: number, lo: number, hi: number): number {
   return n < lo ? lo : n > hi ? hi : n;
+}
+
+/** Case-insensitive regex source for a literal, without the i flag (so \p{Lu} classes stay case-sensitive). */
+export function ci(s: string): string {
+  return [...s]
+    .map((c) => {
+      const lo = c.toLowerCase();
+      const up = c.toUpperCase();
+      return lo !== up && lo.length === 1 && up.length === 1 ? `[${lo}${up}]` : escapeRegExp(c);
+    })
+    .join('');
+}
+
+export function* matchAll(re: RegExp, text: string, cap = 50000): Generator<RegExpExecArray> {
+  re.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  let n = 0;
+  while ((m = re.exec(text))) {
+    if (m[0].length === 0) re.lastIndex++;
+    yield m;
+    if (++n > cap) return;
+  }
+}
+
+export function groupSpan(m: RegExpExecArray, g: number): [number, number] | null {
+  const ind = (m as RegExpExecArray & { indices?: ([number, number] | undefined)[] }).indices;
+  const r = ind?.[g];
+  return r ? [r[0], r[1]] : null;
 }

@@ -23,6 +23,13 @@ await page.getByLabel('AI reply').fill('Use [PASSWORD_1] for the db and write to
 await page.waitForFunction((s) => document.querySelector('.out')?.textContent?.includes(s), secret, { timeout: 8000 });
 const restored = await page.locator('.out').innerText();
 if (restored.split(secret).length !== 3) throw new Error('restore failed:\n' + restored);
+await page.getByRole('tab', { name: 'Settings' }).click();
+await page.getByRole('heading', { name: 'Network, names and IDs' }).waitFor({ timeout: 5000 });
+await page.getByRole('tab', { name: /Mask/ }).click();
+await page.getByLabel('Text to mask').fill('Hi Tom,\nssh jdoe@build01.internal from 52.14.200.31, DOB: 14.03.1985\nRegards,\nMaria Lopez\n');
+await page.waitForFunction(() => !!document.querySelector('.out mark.ph') && /IP_?1|192\.0\.2\.1/.test(document.querySelector('.out')?.textContent ?? ''), null, { timeout: 15000 });
+const t2 = await page.locator('.out').innerText();
+if (/Tom|Maria|52\.14|1985|build01/.test(t2)) throw new Error('tier 2 data leaked:\n' + t2);
 const external = requests.filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:'));
 if (external.length) throw new Error('network requests: ' + external.join(', '));
 // CSP really blocks outgoing requests

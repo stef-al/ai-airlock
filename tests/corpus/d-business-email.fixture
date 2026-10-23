@@ -7,7 +7,7 @@ To: ⟦PERSON:Tom Becker⟧ <⟦EMAIL:tom.becker@globex-corp.net⟧>
 Cc: team@example.com
 Subject: Q3 renewal for ⟦CLIENT:Acme Industries⟧
 
-Hi Tom,
+Hi ⟦PERSON:Tom⟧,
 
 thanks for the call yesterday. As discussed, ⟦CLIENT:Acme Industries⟧ will renew the support contract for another
 12 months. ⟦CLIENT:Globex⟧ stays on the old pricing until March. Please send the invoice to

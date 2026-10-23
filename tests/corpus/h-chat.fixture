@@ -3,11 +3,11 @@
 #! set: holdout
 #! settings: {"region":"US"}
 #!---
-[09:14] anna: can you ssh into the box?
-[09:15] anna: user is deploy, pw: ⟦PASSWORD:Trans1t-0kay⟧
-[09:15] ben: thanks, that worked
-[09:20] ben: grafana user / pass: admin / ⟦PASSWORD:Gr@fana2024⟧
-[09:21] anna: remember to rotate the token ⟦TOKEN:{{slack:91}}⟧ afterwards
-[09:22] ben: my card for the license is ⟦CARD:{{card:visa:92}}⟧ exp ⟦CARD_EXPIRY:09/27⟧ cvv ⟦CVV:123⟧, just kidding
-[09:30] anna: lol. call me on ⟦PHONE:+1 415 555 0132⟧
-[09:31] ben: ok, meeting moved to 10:30 on 2024-06-03, room 4.2
+[09:14] ⟦PERSON:anna⟧: can you ssh into the box?
+[09:15] ⟦PERSON:anna⟧: user is deploy, pw: ⟦PASSWORD:Trans1t-0kay⟧
+[09:15] ⟦PERSON:ben⟧: thanks, that worked
+[09:20] ⟦PERSON:ben⟧: grafana user / pass: admin / ⟦PASSWORD:Gr@fana2024⟧
+[09:21] ⟦PERSON:anna⟧: remember to rotate the token ⟦TOKEN:{{slack:91}}⟧ afterwards
+[09:22] ⟦PERSON:ben⟧: my card for the license is ⟦CARD:{{card:visa:92}}⟧ exp ⟦CARD_EXPIRY:09/27⟧ cvv ⟦CVV:123⟧, just kidding
+[09:30] ⟦PERSON:anna⟧: lol. call me on ⟦PHONE:+1 415 555 0132⟧
+[09:31] ⟦PERSON:ben⟧: ok, meeting moved to 10:30 on 2024-06-03, room 4.2

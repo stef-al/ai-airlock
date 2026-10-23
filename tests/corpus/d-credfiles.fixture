@@ -26,7 +26,7 @@ machine git.example.com login ci password ⟦PASSWORD:Netrc-Pw-77⟧
 
 ## ~/.pgpass
 ```
-db01.internal:5432:billing:app:⟦PASSWORD:Pgp@ss-Fi1e⟧
+⟦HOST:db01.internal⟧:5432:billing:app:⟦PASSWORD:Pgp@ss-Fi1e⟧
 ```
 
 ## ~/.aws/credentials

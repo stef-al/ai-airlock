@@ -7,4 +7,4 @@ Second card: ⟦CARD:{{card:mc:232}}⟧ and an American Express ⟦CARD:{{card:a
 Refund to ⟦IBAN:{{iban:NL:234}}⟧ or ⟦IBAN:{{iban:FR:235}}⟧ or ⟦IBAN:{{iban:PL:236}}⟧.
 Not a card: tracking 1234 5678 9012 3456, timestamp 1700000000123456, invoice 20240815-0042.
 Not an IBAN: DE00 1234 5678 9012 3456 78 (bad checksum) and ref AB12 CDEF 3456.
-Certificate expiry: 12/2026, server 10.20.30.40, version 10.0.19045, call 2024-05-01 12:30.
+Certificate expiry: 12/2026, server ⟦IP:10.20.30.40⟧, version 10.0.19045, call 2024-05-01 12:30.

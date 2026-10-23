@@ -13,7 +13,7 @@ export interface RestoreReport {
 }
 
 export const KNOWN_TYPES = new Set(
-  ('PASSWORD SECRET TOKEN API_KEY PIN JWT PRIVATE_KEY PASSWORD_HASH COOKIE EMAIL PHONE PERSON ORG DOB SSN NATIONAL_ID USERNAME ' +
+  ('PASSWORD SECRET TOKEN API_KEY PIN JWT PRIVATE_KEY PASSWORD_HASH COOKIE EMAIL PHONE PERSON ORG DOB SSN NINO BIRTH_NUMBER PESEL NATIONAL_ID USERNAME ' +
     'IBAN CARD CVV CARD_EXPIRY IP IPV6 MAC HOST CLIENT PROJECT PRODUCT EMPLOYEE CUSTOM')
     .split(' ')
     .map((t) => t.replace(/_/g, '')),
@@ -35,7 +35,7 @@ export function restoreText(text: string, mapping: Mapping, expected?: Iterable<
   const fakes = mapping.fakeList().sort((a, b) => b.length - a.length);
   const knownTypes = new Set(KNOWN_TYPES);
   for (const e of mapping.entries()) knownTypes.add(e.type.replace(/_/g, ''));
-  const fakeAlt = fakes.length ? `(?<![\\w@.+-])(${fakes.map(ci).join('|')})(?![\\w@-]|\\.\\d)` : '(?!)()';
+  const fakeAlt = fakes.length ? `(?<![\\w.+-])(${fakes.map(ci).join('|')})(?![\\w@-]|\\.\\d)` : '(?!)()';
   const re = new RegExp(`${fakeAlt}|${BRACKET}|${BARE}`, 'g');
   let total = 0;
   const output = text.replace(re, (m: string, fake?: string, bl?: string, bn?: string, rl?: string, rn?: string) => {

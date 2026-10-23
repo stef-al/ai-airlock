@@ -1,0 +1,18 @@
+#! name: security incident report
+#! file: incident.md
+#! set: holdout
+#! settings: {"options":{"companyDomains":["northwind-traders.com"]}}
+#!---
+# Incident 2024-11-02
+
+Hi ⟦PERSON:Priya⟧,
+
+between 02:10 and 02:40 we saw failed logins from ⟦IP:52.14.200.31⟧ and ⟦IP:185.220.101.4⟧ against the VPN gateway
+⟦HOST:vpn.northwind-traders.com⟧. The attacker then pivoted to ⟦IP:192.168.44.12⟧ (⟦HOST:fileserver02.corp⟧) and to ⟦IP:10.8.0.15⟧.
+IPv6 source was ⟦IPV6:2a02:26f0:1700::b819:1d4⟧. The laptop NIC was ⟦MAC:3c:22:fb:7a:19:e0⟧.
+
+Not interesting: localhost 127.0.0.1 and ::1, wildcard 0.0.0.0, netmask 255.255.255.0, broadcast 255.255.255.255.
+The agent reports version 4.17.21.3 and build 10.0.19045. Timestamps like 02:10:33 and 12:30:45 are plain times.
+
+Regards,
+⟦PERSON:Priya Nair⟧

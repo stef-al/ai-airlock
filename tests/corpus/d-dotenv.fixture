@@ -4,7 +4,7 @@
 # Production environment (do not commit)
 NODE_ENV=production
 PORT=8080
-DATABASE_URL=postgres://billing:⟦PASSWORD:Pr0d-Pa55word⟧@db.internal:5432/billing
+DATABASE_URL=postgres://billing:⟦PASSWORD:Pr0d-Pa55word⟧@⟦HOST:db.internal⟧:5432/billing
 REDIS_PASSWORD=⟦PASSWORD:r3d1s-Pr0d⟧
 JWT_SECRET=⟦SECRET:{{b64:48:101}}⟧
 AWS_ACCESS_KEY_ID=⟦API_KEY:{{aws:102}}⟧

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
-  BUILTIN_PROFILES, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS, DETECTOR_META, SCOPES, CATEGORIES, defaultSettings, exportProfile, mergeSettings, parseProfile, typeName,
+  BUILTIN_PROFILES, DEFAULT_HOST_SUFFIXES, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS, DETECTOR_META, ID_PACK_META, SCOPES, CATEGORIES, opt, defaultSettings, exportProfile, mergeSettings, parseProfile, typeName,
   type Category, type DetectorOverride, type PlaceholderStyle, type Profile, type RegexRule, type Scope, type Sensitivity, type Settings,
 } from '../engine/light';
 import type { RegexTestRes } from '../worker/protocol';
@@ -141,6 +141,34 @@ export function SettingsView({ settings: s, setSettings, profiles, setProfiles, 
             })}
           </tbody>
         </table>
+      </section>
+
+      <section className="panel">
+        <h2>Network, names and IDs</h2>
+        <div className="row wrap">
+          <label><input type="checkbox" checked={opt(s, 'ipPrivate', true)} onChange={(e) => up((x) => ({ ...x, options: { ...x.options, ipPrivate: e.target.checked } }))} /> mask private IP ranges (10/8, 172.16/12, 192.168/16, link-local)</label>
+          <label><input type="checkbox" checked={opt(s, 'ipLocalhost', false)} onChange={(e) => up((x) => ({ ...x, options: { ...x.options, ipLocalhost: e.target.checked } }))} /> mask localhost / loopback (127.0.0.1, ::1)</label>
+        </div>
+        <div className="cols">
+          <label>Internal host suffixes, one per line (a.b.<i>suffix</i> is masked)
+            <Lines label="host suffixes" rows={4} value={opt(s, 'hostSuffixes', DEFAULT_HOST_SUFFIXES)} onCommit={(v) => up((x) => ({ ...x, options: { ...x.options, hostSuffixes: v } }))} />
+          </label>
+          <label>Company domains, one per line (the domain and all its sub-domains are masked)
+            <Lines label="company domains" rows={4} value={opt(s, 'companyDomains', [] as string[])} onCommit={(v) => up((x) => ({ ...x, options: { ...x.options, companyDomains: v } }))} placeholder="acme-industries.com" />
+          </label>
+        </div>
+        <div className="row wrap">
+          <span>National ID packs:</span>
+          {ID_PACK_META.map((p) => {
+            const off = opt(s, 'idPacksOff', [] as string[]);
+            return (
+              <label key={p.id}>
+                <input type="checkbox" checked={!off.includes(p.id)} onChange={(e) => up((x) => ({ ...x, options: { ...x.options, idPacksOff: e.target.checked ? off.filter((i) => i !== p.id) : [...off, p.id] } }))} /> {p.label}
+              </label>
+            );
+          })}
+        </div>
+        <p className="small muted">Person names need a cue (greeting, signature, title, mail header, label, an email address that contains the name) unless you pick <b>aggressive</b> for “Person names”.</p>
       </section>
 
       <section className="panel">

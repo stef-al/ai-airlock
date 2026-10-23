@@ -2,7 +2,7 @@
 #! file: trace.txt
 #! format: prose
 #!---
-Exception in thread "main" java.sql.SQLInvalidAuthorizationSpecException: Access denied for user 'app'@'10.0.0.5' (using password: YES)
+Exception in thread "main" java.sql.SQLInvalidAuthorizationSpecException: Access denied for user 'app'@'⟦IP:10.0.0.5⟧' (using password: YES)
 	at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:112)
 	at com.acme.billing.PasswordService.authenticate(PasswordService.java:77)
 	at com.acme.billing.TokenService.refreshToken(TokenService.java:118)

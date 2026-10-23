@@ -156,6 +156,8 @@ export function hostOf(doc: Doc, h: Hit): Host {
 
 const ALWAYS_FAKE_IN_CODE = new Set(['EMAIL']);
 const ALWAYS_FAKE = new Set(['IP', 'IPV6', 'MAC']);
+/** Valid inside paths without escaping, so never wrapped in brackets. */
+const BARE_ONLY = new Set(['USERNAME']);
 
 function words(type: string): string {
   return type
@@ -259,8 +261,14 @@ export function makeFake(e: Entry, mapping: Mapping, salt = 0): string | null {
     }
     case 'MAC': {
       const v = n + salt;
-      if (v > 65535) return null;
-      const s = `00:00:5e:00:${(v >> 8).toString(16).padStart(2, '0')}:${(v & 255).toString(16).padStart(2, '0')}`;
+      if (v > 255) return null;
+      const sep = /-/.test(original) ? '-' : ':';
+      const s = ['00', '00', '5e', '00', '53', v.toString(16).padStart(2, '0')].join(sep);
+      const out = original === original.toUpperCase() ? s.toUpperCase() : s;
+      return ok(out) ? out : makeFake(e, mapping, salt + 1);
+    }
+    case 'HOST': {
+      const s = `srv${n + salt * 1000}.example.net`;
       return ok(s) ? s : makeFake(e, mapping, salt + 1);
     }
     case 'CARD': {
@@ -326,7 +334,10 @@ export function candidatesFor(e: Entry, host: Host, style: PlaceholderStyle, map
   const out: string[] = [];
   const token = e.id;
   const wantFake =
-    style === 'fake' || ALWAYS_FAKE.has(e.type) || (ALWAYS_FAKE_IN_CODE.has(e.type) && host.inCode && host.kind !== 'identifier');
+    style === 'fake' ||
+    ALWAYS_FAKE.has(e.type) ||
+    (ALWAYS_FAKE_IN_CODE.has(e.type) && host.inCode && host.kind !== 'identifier') ||
+    (e.type === 'HOST' && (host.inCode || host.kind === 'bare'));
   const fake = () => {
     if (!e.fake) {
       const f = makeFake(e, mapping);
@@ -339,7 +350,8 @@ export function candidatesFor(e: Entry, host: Host, style: PlaceholderStyle, map
     return out;
   }
   if (host.kind === 'number') {
-    const nf = numberFake(e, mapping);
+    const same = e.fake && /^\d+$/.test(e.fake) && e.fake.length === e.original.length ? e.fake : null;
+    const nf = same ?? numberFake(e, mapping);
     if (nf) {
       mapping.setFake(e, nf);
       out.push(nf);
@@ -351,7 +363,7 @@ export function candidatesFor(e: Entry, host: Host, style: PlaceholderStyle, map
     const f = fake();
     if (f) out.push(f);
   }
-  if (host.kind === 'bare') out.push(token, `[${token}]`);
+  if (host.kind === 'bare' || BARE_ONLY.has(e.type)) out.push(token, `[${token}]`);
   else out.push(`[${token}]`, token);
   if (!wantFake) {
     const f = fake();

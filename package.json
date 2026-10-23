@@ -10,7 +10,12 @@
     "build": "tsc --noEmit && vite build && node scripts/check-dist.mjs",
     "test": "vitest run --reporter=dot",
     "metrics": "tsx scripts/metrics.ts",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "gen:names": "tsx scripts/gen-names.ts",
+    "predev": "npm run gen:names --silent",
+    "pretest": "npm run gen:names --silent",
+    "prebuild": "npm run gen:names --silent",
+    "premetrics": "npm run gen:names --silent"
   },
   "dependencies": {
     "jsonc-parser": "^3.3.1",
@@ -20,6 +25,7 @@
     "yaml": "^2.9.1"
   },
   "devDependencies": {
+    "@faker-js/faker": "^10.6.0",
     "@types/node": "^26.6.5",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

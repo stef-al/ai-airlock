@@ -58,6 +58,51 @@ function ibanOf(cc: string, len: number, seed: number): string {
   return raw.replace(/(.{4})/g, '$1 ').trim();
 }
 
+const pad = (n: number, l: number) => String(n).padStart(l, '0');
+
+function pesel(seed: number): string {
+  const r = rng(seed);
+  const year = 1950 + Math.floor(r() * 70);
+  const month = 1 + Math.floor(r() * 12);
+  const day = 1 + Math.floor(r() * 28);
+  const mm = year >= 2000 ? month + 20 : month;
+  const body = pad(year % 100, 2) + pad(mm, 2) + pad(day, 2) + pad(Math.floor(r() * 10000), 4);
+  const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
+  const sum = w.reduce((a, x, i) => a + x * +body[i], 0);
+  return body + String((10 - (sum % 10)) % 10);
+}
+
+function czBirthNumber(seed: number): string {
+  const r = rng(seed);
+  for (;;) {
+    const year = 1954 + Math.floor(r() * 60);
+    const month = 1 + Math.floor(r() * 12) + (r() < 0.5 ? 50 : 0);
+    const day = 1 + Math.floor(r() * 28);
+    const nine = pad(year % 100, 2) + pad(month, 2) + pad(day, 2) + pad(Math.floor(r() * 1000), 3);
+    const last = Number(nine) % 11;
+    if (last === 10) continue;
+    return nine + String(last);
+  }
+}
+
+function ssn(seed: number): string {
+  const r = rng(seed);
+  let area = 100 + Math.floor(r() * 560);
+  if (area === 666) area = 667;
+  return `${pad(area, 3)}-${pad(10 + Math.floor(r() * 89), 2)}-${pad(1000 + Math.floor(r() * 8999), 4)}`;
+}
+
+function nino(seed: number): string {
+  const r = rng(seed);
+  const a = 'ABCEGHJKLMNOPRSTWXYZ';
+  const b = 'ABCEGHJKLMNPRSTWXYZ';
+  let p = '';
+  do p = a[Math.floor(r() * a.length)] + b[Math.floor(r() * b.length)];
+  while (['BG', 'GB', 'NK', 'KN', 'TN', 'NT', 'ZZ'].includes(p));
+  const d = () => pad(Math.floor(r() * 100), 2);
+  return `${p} ${d()} ${d()} ${d()} ${'ABCD'[Math.floor(r() * 4)]}`;
+}
+
 export function expandMacro(name: string, args: string[]): string {
   const seed = Number(args[args.length - 1]) || 1;
   switch (name) {
@@ -103,6 +148,13 @@ export function expandMacro(name: string, args: string[]): string {
       const full = body + luhnDigit(body);
       return args[0] === 'amex' ? `${full.slice(0, 4)} ${full.slice(4, 10)} ${full.slice(10)}` : full.replace(/(.{4})/g, '$1 ').trim();
     }
+    case 'pesel': return pesel(seed);
+    case 'rc': {
+      const n = czBirthNumber(seed);
+      return n.slice(0, 6) + '/' + n.slice(6);
+    }
+    case 'ssn': return ssn(seed);
+    case 'nino': return nino(seed);
     case 'iban': return ibanOf(args[0] || 'DE', ({ DE: 22, GB: 22, FR: 27, NL: 18, ES: 24, IT: 27, PL: 28, CZ: 24 } as Record<string, number>)[args[0] || 'DE'] ?? 22, seed);
     default: throw new Error('unknown macro ' + name);
   }

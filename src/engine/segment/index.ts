@@ -145,7 +145,9 @@ export function detectFormat(text: string, fileName?: string): FormatInfo {
   }
   if (frac(MONTH_LOG) > 0.3 || frac(LEVEL) > 0.4) return { format: 'log' };
   const lang = sniffLang(sample);
-  if (lang) return { format: 'code', lang };
+  // a chat message that merely mentions a command is prose, not a script
+  const codeLike = nonEmpty.filter((l) => /[{};=$|&<>]|\s-{1,2}[A-Za-z]|^\s*(?:#|\/\/|--)|\w\(/.test(l)).length / Math.max(1, nonEmpty.length);
+  if (lang && codeLike >= 0.4) return { format: 'code', lang };
   return { format: 'prose' };
 }
 

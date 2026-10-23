@@ -1,0 +1,12 @@
+#! name: syslog / dhcp / ssh
+#! file: syslog.log
+#!---
+Nov  3 03:14:07 ⟦HOST:gw01.corp⟧ sshd[2211]: Failed password for invalid user admin from ⟦IP:45.83.12.9⟧ port 52114 ssh2
+Nov  3 03:14:09 ⟦HOST:gw01.corp⟧ sshd[2211]: Accepted publickey for deploy from ⟦IP:10.1.2.3⟧ port 40122 ssh2
+Nov  3 03:15:01 ⟦HOST:files.internal⟧ dhcpd: DHCPACK on ⟦IP:10.1.2.77⟧ to ⟦MAC:3c:22:fb:7a:19:e0⟧ (laptop-ana) via eth0
+Nov  3 03:15:05 printer-mgr: lease for ⟦MAC:00-1A-2B-3C-4D-5E⟧ renewed, host ⟦HOST:printer.lan⟧ ip ⟦IP:192.168.5.20⟧
+Nov  3 03:16:11 ⟦HOST:files.internal⟧ smbd: user anna opened /home/⟦USERNAME:ana.kovacs⟧/.ssh/authorized_keys
+Nov  3 03:16:12 build: cannot read C:\Users\⟦USERNAME:mnowak⟧\AppData\Local\Temp\cache.db
+Nov  3 03:16:30 net: link-local ⟦IPV6:fe80::1c2b:3dff:fe4a:77a1⟧ and global ⟦IPV6:2a02:26f0:1700::b819:1d4⟧ seen on eth1
+Nov  3 03:17:00 kernel: Linux 5.15.0-91-generic, listening on 127.0.0.1:8080 and 0.0.0.0:443, netmask 255.255.255.0, loopback ::1
+Nov  3 03:17:01 agent v1.2.3.4 started at 03:17:01, build 10.0.19045, doc ref 192.0.2.10 and 2001:db8::7

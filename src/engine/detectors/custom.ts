@@ -135,6 +135,7 @@ const PHONE_H = /phone|^tel\b|telefon|mobile|handy|\bfax\b|t[ée]l[ée]phone|tel
 const EMAIL_H = /e-?mail|courriel|correo|^mail$/i;
 const IBAN_H = /\biban\b/i;
 const CARD_H = /card[\s_-]?(?:number|no|num)|credit[\s_-]?card|\bcc[\s_-]?(?:number|num|no)\b|\bpan\b|kreditkarte|carte bancaire/i;
+const DOB_H = /birth|\bdob\b|geburt|naissance|nacimiento|nascita|urodzen|narozen/i;
 const CVV_H = /\b(?:cvv2?|cvc2?|csc)\b/i;
 const PERSONISH = /^\p{Lu}[\p{L}'.-]+(?:\s+\p{Lu}[\p{L}'.-]+){0,3}$/u;
 const EMPTY_CELL = /^(?:-+|n\/?a|null|none|nil|tbd|\?+|—|–|)$/i;
@@ -146,6 +147,7 @@ export function classifyColumn(col: Column, text: string, settings: Settings): {
   if (sample.length === 0) return null;
   if (EMAIL_H.test(h)) return { type: 'EMAIL', conf: 0.93, why: 'header' };
   if (IBAN_H.test(h)) return { type: 'IBAN', conf: 0.93, why: 'header' };
+  if (DOB_H.test(h)) return { type: 'DOB', conf: 0.9, why: 'header' };
   if (CVV_H.test(h)) return { type: 'CVV', conf: 0.93, why: 'header' };
   if (CARD_H.test(h)) return { type: 'CARD', conf: 0.93, why: 'header' };
   const ki = analyzerFor(settings).analyze(h);
@@ -153,7 +155,7 @@ export function classifyColumn(col: Column, text: string, settings: Settings): {
   if (PHONE_H.test(h)) return { type: 'PHONE', conf: 0.9, why: 'header' };
   if (CLIENT_H.test(h)) return { type: 'CLIENT', conf: 0.9, why: 'header' };
   if (PERSON_H.test(h)) return { type: 'PERSON', conf: 0.9, why: 'header' };
-  if (/^(?:name|nom|nombre|nazwa|jméno)$/i.test(h) && frac((v) => PERSONISH.test(v)) >= 0.7 && sample.length >= 2) return { type: 'PERSON', conf: 0.75, why: 'header "name" and person-like values' };
+  if (/^(?:name|nom|nombre|nazwa|jméno|contact|kontakt|contacto|ansprechpartner(?:in)?)$/i.test(h) && frac((v) => PERSONISH.test(v)) >= 0.7 && sample.length >= 2) return { type: 'PERSON', conf: 0.75, why: 'header "name" and person-like values' };
   if (sample.length >= 2) {
     if (frac(isEmail) >= 0.7) return { type: 'EMAIL', conf: 0.85, why: 'values' };
     if (frac(ibanValid) >= 0.7) return { type: 'IBAN', conf: 0.9, why: 'values' };
@@ -166,7 +168,7 @@ export const columnsDetector: Detector = {
   id: 'custom.columns',
   label: 'Table columns (CSV / Markdown) by header and values',
   category: 'custom',
-  types: ['EMAIL', 'PHONE', 'PASSWORD', 'CLIENT', 'PERSON'],
+  types: ['EMAIL', 'PHONE', 'PASSWORD', 'CLIENT', 'PERSON', 'DOB'],
   defaultScopes: ['prose', 'config', 'string'],
   detect(doc: Doc, _cfg, ctx) {
     const out: Hit[] = [];

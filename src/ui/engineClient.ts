@@ -12,6 +12,8 @@ interface Job {
   resolve: (v: never) => void;
   reject: (e: Error) => void;
   timeoutMs: number;
+  /** runs synchronously before the next job is built (promise callbacks would run too late) */
+  onResult?: (v: never) => void;
 }
 
 /** Runs engine jobs one at a time in a Web Worker; cancelling terminates and respawns the worker. */
@@ -31,9 +33,15 @@ class Client {
     this.listeners.forEach((f) => f(busy));
   }
 
-  call<T>(req: Req | (() => Req), timeoutMs = 120_000): Promise<T> {
+  call<T>(req: Req | (() => Req), opts: { timeoutMs?: number; onResult?: (v: T) => void } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
-      this.queue.push({ make: typeof req === 'function' ? req : () => req, resolve: resolve as (v: never) => void, reject, timeoutMs });
+      this.queue.push({
+        make: typeof req === 'function' ? req : () => req,
+        resolve: resolve as (v: never) => void,
+        reject,
+        timeoutMs: opts.timeoutMs ?? 120_000,
+        onResult: opts.onResult as ((v: never) => void) | undefined,
+      });
       this.pump();
       this.emit();
     });
@@ -47,8 +55,14 @@ class Client {
       if (!r || r.id !== e.data.id) return;
       clearTimeout(r.timer);
       this.running = null;
-      if (e.data.ok) r.job.resolve(e.data.result as never);
-      else r.job.reject(new Error(e.data.error));
+      if (e.data.ok) {
+        try {
+          r.job.onResult?.(e.data.result as never);
+          r.job.resolve(e.data.result as never);
+        } catch (err) {
+          r.job.reject(err as Error);
+        }
+      } else r.job.reject(new Error(e.data.error));
       this.pump();
       this.emit();
     };
@@ -64,7 +78,8 @@ class Client {
     const job = this.queue.shift();
     if (!job) return;
     const id = ++this.seq;
-    const timer = setTimeout(() => this.cancel('This took too long and was stopped.'), job.timeoutMs);
+    // a timeout stops only this job; the ones queued behind it run in a fresh worker
+    const timer = setTimeout(() => this.fail(new CancelledError('This took too long and was stopped.')), job.timeoutMs);
     this.running = { id, job, timer };
     try {
       this.spawn().postMessage({ id, req: job.make() });

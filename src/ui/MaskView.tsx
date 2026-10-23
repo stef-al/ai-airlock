@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState, type DragEvent, type ReactNode } from 'react';
+import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Hit, Settings } from '../engine/light';
 import { hitKey, selectedHits, type DocState } from './types';
 import { copyText } from './util';
@@ -37,6 +37,14 @@ function lineLimit(text: string, lines: number): number {
   return pos;
 }
 
+/** Enter / Space on a focusable non-button element */
+function activate(e: KeyboardEvent, f: () => void) {
+  if (e.key === 'Enter' || e.key === ' ') {
+    e.preventDefault();
+    f();
+  }
+}
+
 function offsetIn(node: Node, off: number): number | null {
   const el = (node.nodeType === 3 ? node.parentElement : (node as Element))?.closest<HTMLElement>('[data-s]');
   if (!el) return null;
@@ -67,6 +75,8 @@ export function MaskView(p: Props) {
   const low = useMemo(() => chosen.filter((h) => h.confidence < LOW), [chosen]);
   const selHit = sel ? all.find((h) => hitKey(d.text, h) === sel) : undefined;
   const res = d.result;
+  /** the masked output belongs to the current text and choices */
+  const fresh = !!res && d.status === 'ready' && d.maskedVer === d.mver;
 
   const onDrop = (e: DragEvent) => {
     e.preventDefault();
@@ -97,7 +107,18 @@ export function MaskView(p: Props) {
       const isKept = kept.has(k);
       const cls = ['hl', 'cat-' + h.category, isKept ? 'kept' : '', h.confidence < LOW ? 'low' : '', k === sel ? 'sel' : ''].join(' ');
       reviewNodes.push(
-        <mark key={'h' + h.start} data-s={h.start} className={cls} title={`${h.type} · ${Math.round(h.confidence * 100)}% · ${h.reason}`} onClick={() => setSel(k === sel ? null : k)}>
+        <mark
+          key={'h' + h.start}
+          data-s={h.start}
+          className={cls}
+          title={`${h.type} · ${Math.round(h.confidence * 100)}% · ${h.reason}`}
+          tabIndex={0}
+          role="button"
+          aria-pressed={k === sel}
+          aria-label={`${h.type}${isKept ? ', kept' : ''}: ${text.slice(h.start, h.end).slice(0, 60)}`}
+          onClick={() => setSel(k === sel ? null : k)}
+          onKeyDown={(e) => activate(e, () => setSel(k === sel ? null : k))}
+        >
           {text.slice(h.start, h.end)}
         </mark>,
       );
@@ -211,10 +232,17 @@ export function MaskView(p: Props) {
             <h2>Masked output</h2>
             <div className="grow" />
             <span className="small muted" aria-live="polite">{copied}</span>
-            <button className="primary" disabled={!res} onClick={() => res && copy('Copied masked text', res.output)}>Copy masked</button>
-            {p.docs.length > 1 && <button disabled={!p.docs.every((x) => x.result)} onClick={() => copy('Copied all', p.docs.map((x) => `=== ${x.name} ===\n${x.result?.output ?? ''}`).join('\n\n'))}>Copy all</button>}
+            <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', res.output)}>Copy masked</button>
+            {p.docs.length > 1 && (
+              <button
+                disabled={!p.docs.every((x) => !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
+                onClick={() => copy('Copied all', p.docs.filter((x) => x.text.trim()).map((x) => `=== ${x.name} ===\n${x.result?.output ?? ''}`).join('\n\n'))}
+              >
+                Copy all
+              </button>
+            )}
           </div>
-          {res ? <pre className="out">{outNodes}</pre> : <pre className="out muted">{d.status === 'analyzing' ? 'Detecting…' : 'The masked text appears here.'}</pre>}
+          {res ? <pre className={fresh ? 'out' : 'out stale'} aria-busy={!fresh}>{outNodes}</pre> : <pre className="out muted">{d.status === 'analyzing' ? 'Detecting…' : 'The masked text appears here.'}</pre>}
           {res && res.skipped.length > 0 && (
             <div className="notice">
               {res.skipped.length} finding(s) were left unmasked because masking them would break the structure (flagged for review):
@@ -233,7 +261,14 @@ export function MaskView(p: Props) {
               {shownRows.map((h) => {
                 const k = hitKey(text, h);
                 return (
-                  <tr key={h.start + ':' + h.end} className={(k === sel ? 'sel ' : '') + (kept.has(k) ? 'kept' : '')} onClick={() => { setSel(k); p.onEditing(d.id, false); }}>
+                  <tr
+                    key={h.start + ':' + h.end}
+                    className={(k === sel ? 'sel ' : '') + (kept.has(k) ? 'kept' : '')}
+                    tabIndex={0}
+                    aria-selected={k === sel}
+                    onClick={() => { setSel(k); p.onEditing(d.id, false); }}
+                    onKeyDown={(e) => e.target === e.currentTarget && activate(e, () => { setSel(k); p.onEditing(d.id, false); })}
+                  >
                     <td><span className={'chip cat-' + h.category}>{h.type}</span></td>
                     <td className="mono">{text.slice(h.start, h.end).slice(0, 50)}</td>
                     <td className={h.confidence < LOW ? 'warntext' : ''}>{Math.round(h.confidence * 100)}%</td>

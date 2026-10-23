@@ -26,8 +26,13 @@ export function App() {
   const [notice, setNotice] = useState('');
   const [mapCount, setMapCount] = useState(0);
 
+  // every change goes through updateDocs, so the ref is current even before React re-renders
+  // (an analysis scheduled right after adding a file must find it)
   const docsRef = useRef(docs);
-  docsRef.current = docs;
+  const updateDocs = useCallback((f: (ds: DocState[]) => DocState[]) => {
+    docsRef.current = f(docsRef.current);
+    setDocs(docsRef.current);
+  }, []);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const mappingRef = useRef<MappingSnapshot | undefined>(undefined);
@@ -36,7 +41,7 @@ export function App() {
 
   useEffect(() => engine.subscribe(setBusy), []);
 
-  const patch = useCallback((id: string, p: Partial<DocState>) => setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, ...p } : d))), []);
+  const patch = useCallback((id: string, p: Partial<DocState>) => updateDocs((ds) => ds.map((d) => (d.id === id ? { ...d, ...p } : d))), [updateDocs]);
 
   const runAnalyze = useCallback(
     async (id: string) => {
@@ -85,24 +90,27 @@ export function App() {
       const mver = d.mver;
       const hits = selectedHits(d);
       engine
-        .call<MaskRes>(() => ({
-          type: 'mask', docKey: d.id, text: d.text, settings: settingsRef.current, fileName: d.name === 'pasted text' ? undefined : d.name,
-          format: d.format ?? 'prose', lang: d.lang, hits, mapping: mappingRef.current ?? { entries: [], counters: [], reservedIds: [], reservedFakes: [] },
-        }))
+        .call<MaskRes>(
+          () => ({
+            type: 'mask', docKey: d.id, text: d.text, settings: settingsRef.current, fileName: d.name === 'pasted text' ? undefined : d.name,
+            format: d.format ?? 'prose', lang: d.lang, hits, mapping: mappingRef.current ?? { entries: [], counters: [], reservedIds: [], reservedFakes: [] },
+          }),
+          // the session mapping must be updated before the next queued mask job reads it
+          { onResult: (res) => void (mappingRef.current = res.mapping) },
+        )
         .then((res) => {
-          mappingRef.current = res.mapping;
           setMapCount(res.mapping.entries.length);
-          setDocs((ds) => ds.map((x) => (x.id === d.id && x.mver === mver ? { ...x, result: res, maskedVer: mver } : x)));
+          updateDocs((ds) => ds.map((x) => (x.id === d.id && x.mver === mver ? { ...x, result: res, maskedVer: mver } : x)));
         })
         .catch((e: Error) => {
-          if (!(e instanceof CancelledError)) setDocs((ds) => ds.map((x) => (x.id === d.id ? { ...x, status: 'error', error: e.message } : x)));
+          if (!(e instanceof CancelledError)) updateDocs((ds) => ds.map((x) => (x.id === d.id ? { ...x, status: 'error', error: e.message } : x)));
         })
         .finally(() => {
           masking.current.delete(d.id);
-          setDocs((ds) => [...ds]);
+          updateDocs((ds) => [...ds]);
         });
     }
-  }, [docs]);
+  }, [docs, updateDocs]);
 
   // settings: persist, then re-analyse everything
   const firstSettings = useRef(true);
@@ -131,7 +139,7 @@ export function App() {
   }, []);
 
   const setText = (id: string, text: string) => {
-    setDocs((ds) => ds.map((d) => (d.id === id ? { ...d, text, ver: d.ver + 1, status: text.trim() ? 'analyzing' : 'idle', keep: [], extra: [] } : d)));
+    updateDocs((ds) => ds.map((d) => (d.id === id ? { ...d, text, ver: d.ver + 1, status: text.trim() ? 'analyzing' : 'idle', keep: [], extra: [] } : d)));
     scheduleAnalyze(id, text.length > 200_000 ? 800 : 350);
   };
 
@@ -146,11 +154,12 @@ export function App() {
       }
       const d = newDoc(f.name, r.text);
       d.editing = false;
+      d.status = 'analyzing';
       added.push(d);
     }
     if (skipped.length) setNotice('Skipped ' + skipped.join('; '));
     if (!added.length) return;
-    setDocs((ds) => {
+    updateDocs((ds) => {
       const base = ds.length === 1 && !ds[0].text.trim() ? [] : ds;
       return [...base, ...added];
     });
@@ -163,8 +172,7 @@ export function App() {
     mappingRef.current = undefined;
     setMapCount(0);
     const d = newDoc();
-    nextId = Math.max(nextId, 2);
-    setDocs([d]);
+    updateDocs(() => [d]);
     setActiveId(d.id);
     setNotice('Everything forgotten: texts, findings and the placeholder mapping were cleared from memory.');
   };
@@ -213,17 +221,17 @@ export function App() {
           onFiles={addFiles}
           onAdd={() => {
             const d = newDoc();
-            setDocs((ds) => [...ds, d]);
+            updateDocs((ds) => [...ds, d]);
             setActiveId(d.id);
           }}
-          onRemove={(id) =>
-            setDocs((ds) => {
+          onRemove={(id) => {
+            updateDocs((ds) => {
               const rest = ds.filter((d) => d.id !== id);
               if (!rest.length) rest.push(newDoc());
-              if (id === activeId) setActiveId(rest[0].id);
               return rest;
-            })
-          }
+            });
+            if (id === activeId) setActiveId(docsRef.current[0].id);
+          }}
           onKeepOnce={(d, h) => patch(d.id, { keep: [...d.keep, hitKey(d.text, h)], mver: d.mver + 1 })}
           onUnkeep={(d, h) => patch(d.id, { keep: d.keep.filter((k) => k !== hitKey(d.text, h)), mver: d.mver + 1 })}
           onAlwaysKeep={(d, h) => {
@@ -246,7 +254,7 @@ export function App() {
           onRetry={(id) => scheduleAnalyze(id, 0)}
           onCancel={() => {
             engine.cancel('Stopped.');
-            setDocs((ds) => ds.map((d) => (d.status === 'analyzing' ? { ...d, status: 'idle', error: 'Stopped. Edit the text or press Detect to try again.' } : d)));
+            updateDocs((ds) => ds.map((d) => (d.status === 'analyzing' ? { ...d, status: 'idle', error: 'Stopped. Edit the text or press Detect to try again.' } : d)));
           }}
         />
       )}

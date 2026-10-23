@@ -35,6 +35,8 @@ function csp(): Plugin {
         `script-src ${scripts.filter(Boolean).map(sha).join(' ') || "'none'"}`,
         `style-src ${styles.filter(Boolean).map(sha).join(' ') || "'none'"}`,
         'worker-src blob:',
+        // Safari < 15.5 ignores worker-src and checks child-src; frames stay blocked by frame-src
+        'child-src blob:',
         'img-src data:',
         "connect-src 'none'",
         "font-src 'none'",

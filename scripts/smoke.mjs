@@ -30,11 +30,35 @@ await page.getByLabel('Text to mask').fill('Hi Tom,\nssh jdoe@build01.internal f
 await page.waitForFunction(() => !!document.querySelector('.out mark.ph') && /IP_?1|192\.0\.2\.1/.test(document.querySelector('.out')?.textContent ?? ''), null, { timeout: 15000 });
 const t2 = await page.locator('.out').innerText();
 if (/Tom|Maria|52\.14|1985|build01/.test(t2)) throw new Error('tier 2 data leaked:\n' + t2);
+// two files at once: each gets its own placeholder and both restore (the mapping is threaded through the job queue)
+const sa = ['Alpha', 'Pw', '-7731'].join('');
+const sb = ['Beta', 'Pw', '-9142'].join('');
+await page.locator('input[type=file][multiple]').setInputFiles([
+  { name: 'a.env', mimeType: 'text/plain', buffer: Buffer.from(`DB_PASSWORD=${sa}\n`) },
+  { name: 'b.yaml', mimeType: 'text/plain', buffer: Buffer.from(`db:\n  password: ${sb}\n`) },
+]);
+const placeholderOf = async (name) => {
+  await page.getByRole('button', { name, exact: true }).click();
+  await page.waitForFunction(() => !!document.querySelector('.out:not(.stale) mark.ph'), null, { timeout: 15000 });
+  return page.locator('.out mark.ph').first().innerText();
+};
+const pa = await placeholderOf('a.env');
+const pb = await placeholderOf('b.yaml');
+if (pa === pb) throw new Error(`two different values got the same placeholder ${pa}`);
+// keyboard: a highlight can be focused and opened without a mouse
+await page.locator('mark.hl').first().focus();
+await page.keyboard.press('Enter');
+await page.locator('.detail').waitFor({ timeout: 5000 });
+await page.getByRole('tab', { name: /Restore/ }).click();
+await page.getByLabel('AI reply').fill(`a=${pa} b=${pb}`);
+await page.waitForFunction((s) => document.querySelector('.out')?.textContent?.includes(s), sb, { timeout: 8000 });
+const both = await page.locator('.out').innerText();
+if (both.trim() !== `a=${sa} b=${sb}`) throw new Error('multi-document restore failed: ' + both);
 const external = requests.filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:'));
 if (external.length) throw new Error('network requests: ' + external.join(', '));
 // CSP really blocks outgoing requests
 const blocked = await page.evaluate(() => fetch('https://example.com/').then(() => 'LEAK', () => 'blocked'));
 if (blocked !== 'blocked') throw new Error('fetch was not blocked by CSP');
 if (problems.some((p) => !/Content Security Policy|Refused to connect/.test(p))) throw new Error('console problems:\n' + problems.join('\n'));
-console.log('smoke OK:', guard, '| restore OK | fetch blocked by CSP | no external requests');
+console.log('smoke OK:', guard, '| restore OK | two files restore | keyboard review | fetch blocked by CSP | no external requests');
 await browser.close();

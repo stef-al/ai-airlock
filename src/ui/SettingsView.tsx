@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type Dispatch, type ReactNode, type SetStateAction } from 'react';
 import {
-  BUILTIN_PROFILES, DEFAULT_HOST_SUFFIXES, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS, DETECTOR_META, ID_PACK_META, SCOPES, CATEGORIES, opt, defaultSettings, exportProfile, mergeSettings, parseProfile, typeName,
+  BUILTIN_PROFILES, DEFAULT_HOST_SUFFIXES, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS, DETECTOR_META, ID_PACK_META, SCOPES, CATEGORIES, opt, defaultSettings, exportProfile, mergeSettings, parseProfile, regexRisk, typeName,
   type Category, type DetectorOverride, type PlaceholderStyle, type Profile, type RegexRule, type Scope, type Sensitivity, type Settings,
 } from '../engine/light';
 import type { RegexTestRes } from '../worker/protocol';
@@ -26,6 +26,26 @@ function Lines({ value, onCommit, rows = 5, label, placeholder }: { value: strin
   useEffect(() => setText(value.join('\n')), [value]);
   return (
     <textarea aria-label={label} className="lines" rows={rows} value={text} placeholder={placeholder} spellCheck={false} onChange={(e) => setText(e.target.value)} onBlur={() => onCommit(text.split('\n').map((l) => l.trim()).filter(Boolean))} />
+  );
+}
+
+/** Two-letter region; only a complete code is applied. */
+function RegionInput({ value, onCommit }: { value: string; onCommit(v: string): void }) {
+  const [text, setText] = useState(value);
+  useEffect(() => setText(value), [value]);
+  return (
+    <input
+      className="short"
+      aria-label="phone region"
+      value={text}
+      maxLength={2}
+      onChange={(e) => {
+        const v = e.target.value.toUpperCase().replace(/[^A-Z]/g, '');
+        setText(v);
+        if (/^[A-Z]{2}$/.test(v)) onCommit(v);
+      }}
+      onBlur={() => setText(value)}
+    />
   );
 }
 
@@ -77,6 +97,9 @@ export function SettingsView({ settings: s, setSettings, profiles, setProfiles, 
             try {
               const p = parseProfile(await f.text());
               setProfiles((ps) => [...ps.filter((x) => x.name !== p.name), { name: p.name, settings: p.settings }]);
+              // make it the active profile ("Update profile" must not overwrite the previous one), then
+              // apply the imported settings last: applyProfile may still see an older profile of that name
+              applyProfile(p.name);
               up((x) => mergeSettings(defaultSettings(x.region), p.settings));
               flash(`Imported profile "${p.name}"`);
             } catch (err) {
@@ -92,7 +115,7 @@ export function SettingsView({ settings: s, setSettings, profiles, setProfiles, 
         <h2>General</h2>
         <div className="row">
           <label>Global sensitivity <select value={s.sensitivity} onChange={(e) => up((x) => ({ ...x, sensitivity: e.target.value as Sensitivity }))}>{SENS.map((v) => <option key={v}>{v}</option>)}</select></label>
-          <label>Phone region <input className="short" value={s.region} maxLength={2} onChange={(e) => up((x) => ({ ...x, region: e.target.value.toUpperCase() }))} /></label>
+          <label>Phone region <RegionInput value={s.region} onCommit={(region) => up((x) => ({ ...x, region }))} /></label>
           <button onClick={() => up((x) => defaultSettings(x.region))}>Reset all settings</button>
         </div>
         <p className="small muted"><b>Strict</b>: validated or known formats only. <b>Balanced</b>: adds context rules (names, assignments, prose). <b>Aggressive</b>: adds entropy and password-shape heuristics.</p>
@@ -178,7 +201,24 @@ export function SettingsView({ settings: s, setSettings, profiles, setProfiles, 
             <Lines label="allowlist terms" value={s.allowlist.terms} onCommit={(v) => up((x) => ({ ...x, allowlist: { ...x.allowlist, terms: v } }))} placeholder="example.com&#10;www.mycompany.com" />
           </label>
           <label>Regular expressions, one per line
-            <Lines label="allowlist regexes" value={s.allowlist.regexes} onCommit={(v) => up((x) => ({ ...x, allowlist: { ...x.allowlist, regexes: v.filter((r) => { try { new RegExp(r); return true; } catch { return false; } }) } }))} placeholder="^test_.*@corp\.com$" />
+            <Lines
+              label="allowlist regexes"
+              value={s.allowlist.regexes}
+              onCommit={(v) => {
+                const why = (r: string) => {
+                  try {
+                    new RegExp(r);
+                  } catch (e) {
+                    return (e as Error).message;
+                  }
+                  return regexRisk(r);
+                };
+                const bad = v.map((r) => [r, why(r)] as const).filter(([, w]) => w);
+                if (bad.length) flash(`Not used: ${bad.map(([r, w]) => `${r} (${w})`).join('; ')}`);
+                up((x) => ({ ...x, allowlist: { ...x.allowlist, regexes: v.filter((r) => !why(r)) } }));
+              }}
+              placeholder="^test_.*@corp\.com$"
+            />
           </label>
         </div>
       </section>
@@ -242,7 +282,7 @@ function RuleRow({ r, set, remove }: { r: RegexRule; set(p: Partial<RegexRule>):
     if (!sample) return setRes(null);
     const t = setTimeout(() => {
       engine
-        .call<RegexTestRes>({ type: 'regex', pattern: r.pattern, flags: r.flags, sample }, 1500)
+        .call<RegexTestRes>({ type: 'regex', pattern: r.pattern, flags: r.flags, sample }, { timeoutMs: 1500 })
         .then(setRes)
         .catch((e: Error) => setRes({ error: e instanceof CancelledError ? 'The pattern took too long and was stopped.' : e.message, matches: [] }));
     }, 300);

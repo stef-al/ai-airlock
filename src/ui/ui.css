@@ -73,3 +73,5 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); paddi
 .offscreen { position: fixed; left: -9999px; top: 0; }
 .settings label { display: inline-flex; gap: 6px; align-items: center; }
 .settings .cols label { display: grid; gap: 4px; }
+mark.hl:focus-visible, .findings tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.out.stale { opacity: 0.55; }

@@ -30,12 +30,25 @@ export function downloadText(name: string, text: string, mime = 'application/jso
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+/** Legacy 8-bit code page for files that are not valid UTF-8, by the browser's language. */
+function legacyEncoding(): string {
+  const lang = (typeof navigator !== 'undefined' ? navigator.language : 'en').slice(0, 2).toLowerCase();
+  return ['cs', 'sk', 'pl', 'hu', 'sl', 'hr', 'ro', 'bs', 'sr'].includes(lang) ? 'windows-1250' : 'windows-1252';
+}
+
 export async function readFileText(file: File): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
   if (file.size > 25 * 1024 * 1024) return { ok: false, reason: 'larger than 25 MB' };
   const buf = await file.arrayBuffer();
   const head = new Uint8Array(buf.slice(0, 4096));
+  // UTF-16 (Windows PowerShell's default for Out-File and redirection) is full of zero bytes
+  if (head[0] === 0xff && head[1] === 0xfe) return { ok: true, text: new TextDecoder('utf-16le').decode(buf) };
+  if (head[0] === 0xfe && head[1] === 0xff) return { ok: true, text: new TextDecoder('utf-16be').decode(buf) };
   if (head.includes(0)) return { ok: false, reason: 'looks like a binary file (Office/PDF input is on the roadmap)' };
-  return { ok: true, text: new TextDecoder('utf-8').decode(buf) };
+  try {
+    return { ok: true, text: new TextDecoder('utf-8', { fatal: true }).decode(buf) };
+  } catch {
+    return { ok: true, text: new TextDecoder(legacyEncoding()).decode(buf) };
+  }
 }
 
 /** Minimal CSV/TXT term importer for always-mask lists: one term per line, first column wins. */

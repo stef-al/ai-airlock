@@ -35,7 +35,8 @@ const sa = ['Alpha', 'Pw', '-7731'].join('');
 const sb = ['Beta', 'Pw', '-9142'].join('');
 await page.locator('input[type=file][multiple]').setInputFiles([
   { name: 'a.env', mimeType: 'text/plain', buffer: Buffer.from(`DB_PASSWORD=${sa}\n`) },
-  { name: 'b.yaml', mimeType: 'text/plain', buffer: Buffer.from(`db:\n  password: ${sb}\n`) },
+  // UTF-16 with BOM, as Windows PowerShell writes files
+  { name: 'b.yaml', mimeType: 'text/plain', buffer: Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(`db:\n  password: ${sb}\n`, 'utf16le')]) },
 ]);
 const placeholderOf = async (name) => {
   await page.getByRole('button', { name, exact: true }).click();
@@ -60,5 +61,5 @@ if (external.length) throw new Error('network requests: ' + external.join(', '))
 const blocked = await page.evaluate(() => fetch('https://example.com/').then(() => 'LEAK', () => 'blocked'));
 if (blocked !== 'blocked') throw new Error('fetch was not blocked by CSP');
 if (problems.some((p) => !/Content Security Policy|Refused to connect/.test(p))) throw new Error('console problems:\n' + problems.join('\n'));
-console.log('smoke OK:', guard, '| restore OK | two files restore | keyboard review | fetch blocked by CSP | no external requests');
+console.log('smoke OK:', guard, '| restore OK | two files (one UTF-16) restore | keyboard review | fetch blocked by CSP | no external requests');
 await browser.close();

@@ -109,12 +109,22 @@ export function ci(s: string): string {
     .join('');
 }
 
+/**
+ * Step past an empty match. Under the u/v flag a step into the middle of a surrogate pair is
+ * moved back by exec, which would match the same empty string forever: step a whole code point.
+ */
+export function skipEmpty(re: RegExp, text: string): void {
+  const i = re.lastIndex;
+  const c = text.charCodeAt(i);
+  re.lastIndex = i + ((re.unicode || re.flags.includes('v')) && c >= 0xd800 && c <= 0xdbff ? 2 : 1);
+}
+
 export function* matchAll(re: RegExp, text: string, cap = 50000): Generator<RegExpExecArray> {
   re.lastIndex = 0;
   let m: RegExpExecArray | null;
   let n = 0;
   while ((m = re.exec(text))) {
-    if (m[0].length === 0) re.lastIndex++;
+    if (m[0].length === 0) skipEmpty(re, text);
     yield m;
     if (++n > cap) return;
   }

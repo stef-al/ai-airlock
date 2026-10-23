@@ -1,6 +1,6 @@
 import { isPlaceholderValue, isReference, looksLikeCode, valueVerdict } from '../cues';
 import type { Detector, Doc, Hit, RunCtx } from '../types';
-import { charClasses } from '../util';
+import { charClasses, skipEmpty } from '../util';
 import { analyzerFor, mkHit } from './helpers';
 
 const ID = 'secrets.known';
@@ -145,7 +145,7 @@ function* matches(re: RegExp, text: string): Generator<RegExpExecArray> {
   let m: RegExpExecArray | null;
   let n = 0;
   while ((m = re.exec(text))) {
-    if (m[0].length === 0) re.lastIndex++;
+    if (m[0].length === 0) skipEmpty(re, text);
     yield m;
     if (++n > 20000) return;
   }

@@ -1,6 +1,6 @@
 import { isPlaceholderValue, isReference, looksLikeCode, proseValueLooksSecret, valueVerdict, type KeyAnalyzer } from '../cues';
 import { SENS_RANK, type Detector, type Doc, type Hit, type Pair } from '../types';
-import { isWordCh, nameTokens, segAt } from '../util';
+import { isWordCh, nameTokens, segAt, skipEmpty } from '../util';
 import { analyzerFor, formatLabel, isStructured, mkHit } from './helpers';
 
 const ID = 'secrets.context';
@@ -159,7 +159,7 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     const kStart = m.index;
     const kEnd = kStart + m[0].length;
     if (m[0].length === 0) {
-      re.lastIndex++;
+      skipEmpty(re, t);
       continue;
     }
     let ws = kStart;

@@ -1,5 +1,6 @@
 /// <reference lib="webworker" />
 import { analyze, buildDoc, compileUserRegex, Mapping, mask, restoreText, type Doc } from '../engine';
+import { skipEmpty } from '../engine/util';
 import type { Reply, ReqWithId } from './protocol';
 
 // Keeps the last few analysed documents so toggling a finding only re-runs masking.
@@ -42,7 +43,7 @@ self.onmessage = (e: MessageEvent<ReqWithId>) => {
         const matches: [number, number][] = [];
         let m: RegExpExecArray | null;
         while ((m = re.exec(req.sample)) && matches.length < 500) {
-          if (!m[0]) re.lastIndex++;
+          if (!m[0]) skipEmpty(re, req.sample);
           else matches.push([m.index, m.index + m[0].length]);
         }
         reply({ ok: true, result: { matches } });

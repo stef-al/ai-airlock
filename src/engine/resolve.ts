@@ -1,4 +1,5 @@
 import type { Doc, Hit, Scope, Settings } from './types';
+import { regexRisk } from './userRegex';
 import { segIndexAt } from './util';
 
 function scopeOk(doc: Doc, h: Hit, allowed: Set<Scope>): boolean {
@@ -24,7 +25,7 @@ function allowRegex(src: string): RegExp | null {
   if (reCache.has(src)) return reCache.get(src)!;
   let r: RegExp | null = null;
   try {
-    r = new RegExp(src, 'i');
+    r = regexRisk(src) ? null : new RegExp(src, 'i');
   } catch {
     r = null;
   }

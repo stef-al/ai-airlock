@@ -1,6 +1,6 @@
 import { isPlaceholderValue, isReference } from '../cues';
 import type { Column, Detector, Doc, Hit, Settings } from '../types';
-import { escapeRegExp, segAt } from '../util';
+import { escapeRegExp, segAt, skipEmpty } from '../util';
 import { isEmail } from './contact';
 import { cardBrand, ibanValid, luhn } from './financial';
 import { analyzerFor, CAT_OF_TYPE, mkHit } from './helpers';
@@ -37,8 +37,18 @@ interface Compiled {
 
 const listCache = new Map<string, Compiled[]>();
 
+/** FNV-1a over every term, so an edit anywhere in a long list invalidates the cache */
+function termsHash(terms: string[]): number {
+  let h = 2166136261;
+  for (const t of terms) {
+    for (let i = 0; i < t.length; i++) h = Math.imul(h ^ t.charCodeAt(i), 16777619);
+    h = Math.imul(h ^ 10, 16777619);
+  }
+  return h >>> 0;
+}
+
 function compileLists(s: Settings): Compiled[] {
-  const key = JSON.stringify(s.customLists.map((l) => [l.enabled, l.type, l.terms.length, l.terms.slice(0, 50), l.terms.slice(-50)]));
+  const key = JSON.stringify(s.customLists.map((l) => [l.enabled, l.type, l.name, l.terms.length, termsHash(l.terms)]));
   const hit = listCache.get(key);
   if (hit) return hit;
   const out: Compiled[] = [];
@@ -73,7 +83,7 @@ export const listsDetector: Detector = {
       let n = 0;
       while ((m = c.re.exec(doc.text))) {
         if (m[0].length === 0) {
-          c.re.lastIndex++;
+          skipEmpty(c.re, doc.text);
           continue;
         }
         if (++n > 50000) break;
@@ -110,7 +120,7 @@ export const regexDetector: Detector = {
       let n = 0;
       while ((m = re.exec(doc.text))) {
         if (m[0].length === 0) {
-          re.lastIndex++;
+          skipEmpty(re, doc.text);
           continue;
         }
         if (++n > 20000) break;

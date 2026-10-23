@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, Cancelled, defaultSettings, mask, Mapping, maskText, mergeSettings, restoreText, type Settings } from '../src/engine';
+import { exportProfile, parseProfile, sanitizeSettings } from '../src/engine/settings';
 import { ibanValid, luhn } from '../src/engine/detectors/financial';
 import { compileUserRegex } from '../src/engine/userRegex';
 import { KeyAnalyzer, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS } from '../src/engine/cues';
@@ -166,6 +167,29 @@ describe('restore', () => {
 });
 
 describe('settings', () => {
+  it('imports exactly what it exported, and survives damaged settings', () => {
+    const full = S({
+      sensitivity: 'aggressive',
+      customLists: [{ id: 'l', name: 'Clients', type: 'CLIENT', enabled: true, terms: ['Acme Bank'] }],
+      regexRules: [{ id: 'r', name: 'Ticket', type: 'TICKET', pattern: 'TCK-\\d+', flags: 'i', enabled: true }],
+      detectors: { 'contact.phone': { enabled: false, scopes: ['prose'] } },
+      options: { ipPrivate: true, hostSuffixes: ['corp'] },
+    });
+    const back = mergeSettings(defaultSettings('US'), parseProfile(exportProfile('p', full)).settings);
+    expect(back).toEqual(full);
+    const junk = [
+      null, 42, 'x', [], { categories: 'x', detectors: [1], customLists: 'x', regexRules: [{}], allowlist: { terms: 'x' }, options: { a: { b: 1 } } },
+      { customLists: [{ terms: [1, null, 'Acme'] }, null], keywords: [{}], exclusions: { uuid: 'yes' }, sensitivity: 'max', detectors: { x: { scopes: ['structure', 'prose'] } } },
+    ];
+    for (const j of junk) {
+      const st = mergeSettings(defaultSettings('US'), sanitizeSettings(j));
+      expect(() => maskText('password=hunter22x mail bob@acme.io Acme', st)).not.toThrow();
+    }
+    const st = mergeSettings(defaultSettings('US'), sanitizeSettings(junk[5]));
+    expect(st.customLists[0].terms).toEqual(['Acme']);
+    expect(st.detectors.x.scopes).toEqual(['prose']);
+    expect(st.exclusions.uuid).toBe(true);
+  });
   it('allowlist keeps terms and regexes', () => {
     const t = 'mail a@corp.com and b@example.com';
     expect(run(t).output).toBe('mail [EMAIL_1] and b@example.com');
@@ -252,6 +276,11 @@ describe('robustness', () => {
     expect(Date.now() - t0).toBeLessThan(6000);
     expect(r.hits.length).toBeGreaterThan(10000);
     expect(r.guard.ok).toBe(true);
+  });
+  it('steps over empty matches of user regexes, also before emoji', () => {
+    const rules = [{ id: 'r', name: 'r', type: 'TICKET', pattern: 'x*', flags: 'u', enabled: true }];
+    const r = run('😀😀 a xx 😀', { regexRules: rules });
+    expect(r.output).toBe('😀😀 a [TICKET_1] 😀');
   });
   it('never lets mask crash on empty or odd input', () => {
     for (const t of ['', ' ', '\n\n', '{', '<', '```', '|', '\u0000', '"', '[[[[']) {

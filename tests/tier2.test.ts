@@ -74,6 +74,7 @@ describe('paths and dates', () => {
   it('masks user names in home paths with a path-safe token', () => {
     const t = 'cat /home/jsmith/.bashrc C:\\Users\\mnowak\\Desktop /home/ubuntu/x C:\\Users\\Public\\y /home/<user>/z';
     expect(masked(t)).toEqual(['USERNAME:jsmith', 'USERNAME:mnowak']);
+    expect(masked('(see C:\\Users\\akowal) or [C:\\Users\\bnovak]')).toEqual(['USERNAME:akowal', 'USERNAME:bnovak']);
     expect(run(t).output).toContain('/home/USERNAME_1/.bashrc');
   });
   it('needs a birth cue and a real date', () => {

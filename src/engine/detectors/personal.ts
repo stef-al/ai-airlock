@@ -8,7 +8,8 @@ import { mkHit } from './helpers';
 // ---------------------------------------------------------------------------------------------
 
 const UNIX = /(?<![\w.~-])(?:\/home|\/Users|\/export\/home)\/([A-Za-z0-9][A-Za-z0-9._-]{1,31})(?=[/\\\s"'`):,;]|$)/gd;
-const WIN = /(?<!\w)[A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+([^\\/:*?"<>|\r\n\s%$,;]{2,32})(?=[\\/\s"'`):,;]|$)/gid;
+// brackets are left out of the name: "(see C:\Users\jdoe)" must not take the ")"
+const WIN = /(?<!\w)[A-Za-z]:[\\/]+(?:Users|Documents and Settings)[\\/]+([^\\/:*?"<>|\r\n\s%$,;()[\]{}]{2,32})(?=[\\/\s"'`)\]}:,;.]|$)/gid;
 
 export const usernameDetector: Detector = {
   id: 'paths.username',

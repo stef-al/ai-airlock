@@ -1,0 +1,8 @@
+#! name: customer export csv
+#! file: customers.csv
+#! settings: {"region":"DE"}
+#!---
+Customer,Contact,Email,Phone,IBAN,Password,Notes
+⟦CLIENT:Acme Industries GmbH⟧,⟦PERSON:Hans Becker⟧,⟦EMAIL:h.becker@acme-industries.com⟧,⟦PHONE:+49 89 5550 1234⟧,⟦IBAN:{{iban:DE:141}}⟧,⟦PASSWORD:Welc0me-2024⟧,"Net 30, renewal in March"
+⟦CLIENT:Globex Corporation⟧,⟦PERSON:Ana Ruiz⟧,⟦EMAIL:ana.ruiz@globex-corp.net⟧,⟦PHONE:+34 912 345 678⟧,⟦IBAN:{{iban:ES:142}}⟧,⟦PASSWORD:S3cur3!Pass⟧,Key account
+⟦CLIENT:Initech⟧,⟦PERSON:Peter Gibbons⟧,⟦EMAIL:p.gibbons@initech.io⟧,⟦PHONE:+44 20 7946 0958⟧,⟦IBAN:{{iban:GB:143}}⟧,⟦PASSWORD:Tps#Reports9⟧,"Contract v2.1, signed"

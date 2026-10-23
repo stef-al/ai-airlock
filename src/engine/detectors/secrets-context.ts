@@ -1,6 +1,6 @@
 import { isPlaceholderValue, isReference, proseValueLooksSecret, valueVerdict, type KeyAnalyzer } from '../cues';
 import { SENS_RANK, type Detector, type Doc, type Hit, type Pair } from '../types';
-import { isWordCh, nameTokens } from '../util';
+import { isWordCh, nameTokens, segAt } from '../util';
 import { analyzerFor, formatLabel, isStructured, mkHit } from './helpers';
 
 const ID = 'secrets.context';
@@ -12,7 +12,7 @@ const OPEN_Q = new Set(['"', "'", '`', '“', '„', '«', '‘']);
 const CLOSE_Q: Record<string, string> = { '"': '"', "'": "'", '`': '`', '“': '”', '„': '“', '«': '»', '‘': '’' };
 
 function isKeyCh(c: string): boolean {
-  return isWordCh(c) || c === '.' || c === '-' || c === '$' || c === '@' || c >= 'À';
+  return isWordCh(c) || c === '.' || c === '-' || c === '$' || c >= 'À';
 }
 
 interface Val {
@@ -121,10 +121,11 @@ function fromCall(doc: Doc, p: Pair, an: KeyAnalyzer): Hit | null {
   if (ki && !ki.negated) {
     const idx = toks.findIndex((x) => x === ki.keyword || x.includes(ki.keyword.replace(/\s/g, '')));
     const setterOk = idx <= 0 || toks.slice(0, idx).every((x) => SETTER.has(x));
-    if (!setterOk || !last) return null;
-    const v = valueVerdict(raw, { strength: ki.strength, type: ki.type, quoted: true });
-    if (!v.ok) return null;
-    return mkHit(ID, ki.type, p.valStart, p.valEnd, v.conf, `argument of ${p.key}(…) in ${formatLabel(doc)}`, 2, 'call-cue');
+    if (setterOk && last) {
+      const v = valueVerdict(raw, { strength: ki.strength, type: ki.type, quoted: true });
+      if (!v.ok) return null;
+      return mkHit(ID, ki.type, p.valStart, p.valEnd, v.conf, `argument of ${p.key}(…) in ${formatLabel(doc)}`, 2, 'call-cue');
+    }
   }
   if (toks.some((x) => AUTHISH.has(x)) && (p.argCount ?? 0) >= 2 && last) {
     const v = valueVerdict(raw, { strength: 'medium', type: 'PASSWORD', quoted: true });
@@ -158,10 +159,22 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     re.lastIndex = Math.max(we, kEnd);
     while (we > kEnd && (t[we - 1] === '.' || t[we - 1] === '-')) we--;
     // pick the dotted segment containing the cue; it must be the last one (password.length is not a secret)
-    const dot = t.lastIndexOf('.', kStart - 1);
-    let segStart = dot >= ws && dot < kStart ? dot + 1 : ws;
-    const nextDot = t.indexOf('.', kEnd);
-    if (nextDot >= 0 && nextDot < we) continue;
+    let dot = -1;
+    for (let q = kStart - 1; q >= ws; q--) {
+      if (t[q] === '.') {
+        dot = q;
+        break;
+      }
+    }
+    const segStart = dot >= 0 ? dot + 1 : ws;
+    let hasNextDot = false;
+    for (let q = kEnd; q < we; q++) {
+      if (t[q] === '.') {
+        hasNextDot = true;
+        break;
+      }
+    }
+    if (hasNextDot) continue;
     let flag = false;
     let k0 = segStart;
     while (k0 < kStart && (t[k0] === '-' || t[k0] === '$' || t[k0] === '@')) {
@@ -172,6 +185,10 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     const word = t.slice(k0, we);
     const ki = an.analyze(word);
     if (!ki || ki.negated) continue;
+    // cue inside an ARN / vault path / URL-ish reference token
+    let tb = ws;
+    while (tb > 0 && ws - tb < 120 && !/\s/.test(t[tb - 1])) tb--;
+    if (/^(?:arn:|vault:|ssm:|op:\/\/|projects\/|secret\/|kv\/)/i.test(t.slice(tb, tb + 12))) continue;
 
     // closing quotes / escapes of a quoted key, then the delimiter
     let p = we;
@@ -202,8 +219,10 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     if (!val) continue;
     if (skip.has(val.s)) continue;
     const value = t.slice(val.s, val.e);
+    // "user / pass: admin / secret": the first value is the user name, handled by the user/pass rule
+    if (!val.quoted && /^\s+[/|]\s+\S/.test(t.slice(val.e, val.e + 6))) continue;
     // sentences: "Password: please enter ..." in free text
-    if (!val.quoted && !structured) {
+    if (!val.quoted && (!structured || segAt(doc, val.s)?.scope !== 'config')) {
       const rest = t.slice(val.e, val.e + 24);
       if (/^[ \t]+[a-z]{2,}/.test(rest) && /^[A-Za-z]+$/.test(value) && !loose) continue;
     }
@@ -233,6 +252,8 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
 
 const USER_PASS =
   /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
+const LOGIN_PAIR =
+  /\b(?:logins?|credentials|zugangsdaten|zugang|access|account)\b[^\n]{0,60}?(?:\bis\b|\bare\b|\bist\b|\bsind\b|:|=)\s*['"`]?([\w.@-]{2,40})['"`]?\s*[/|]\s*['"`]?([^\s/|'"`]{4,64})/gi;
 const AUTH_TUPLE = /\b(?:auth|credentials|basic_?auth|http_?auth)\s*[=:]\s*[(\[]\s*(['"])([^'"\n]{0,64})\1\s*,\s*(['"])([^'"\n]{3,128})\3\s*[)\]]/gi;
 
 function extra(doc: Doc, skip: Set<number>): Hit[] {
@@ -245,6 +266,13 @@ function extra(doc: Doc, skip: Set<number>): Hit[] {
     const s = m.index + m[0].length - v.length;
     if (isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
     out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.8, "second value of a 'user / password' pair in text", 2, 'user-pass'));
+  }
+  LOGIN_PAIR.lastIndex = 0;
+  while ((m = LOGIN_PAIR.exec(t))) {
+    const v = m[2].replace(/[.,;!?]+$/, '');
+    const s = m.index + m[0].lastIndexOf(m[2]);
+    if (!(/\d/.test(v) || /[^A-Za-z0-9]/.test(v)) || isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.72, "second value of a 'login: user / password' pair in text", 2, 'login-pair'));
   }
   AUTH_TUPLE.lastIndex = 0;
   while ((m = AUTH_TUPLE.exec(t))) {

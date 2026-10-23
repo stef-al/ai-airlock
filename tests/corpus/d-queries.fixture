@@ -1,0 +1,10 @@
+#! name: sql admin script
+#! file: setup.sql
+#!---
+-- create service users
+CREATE USER 'report_ro'@'%' IDENTIFIED BY '⟦PASSWORD:Rep0rt-ro#1⟧';
+ALTER LOGIN billing_app WITH PASSWORD = '⟦PASSWORD:Bl1ng!Ap9⟧';
+INSERT INTO users (name, email, password, created_at) VALUES ('bob', '⟦EMAIL:bob@acme-industries.com⟧', '⟦PASSWORD:hunter22x⟧', now());
+UPDATE accounts SET api_token = '⟦TOKEN:{{rand:40:171}}⟧' WHERE id = 42;
+SELECT id, email, password_hash FROM users WHERE password_hash IS NOT NULL AND status = 'active';
+CREATE TABLE credentials (id INT PRIMARY KEY, secret_name VARCHAR(100), password_hash CHAR(60));

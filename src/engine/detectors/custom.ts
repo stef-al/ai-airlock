@@ -68,7 +68,7 @@ export const listsDetector: Detector = {
   label: 'Always-mask lists (clients, projects, products, employees…)',
   category: 'custom',
   types: ['CLIENT', 'PROJECT', 'PRODUCT', 'EMPLOYEE'],
-  defaultScopes: ['prose', 'comment', 'string', 'config', 'identifier'],
+  defaultScopes: ['prose', 'comment', 'string', 'config'],
   detect(doc, _cfg, ctx) {
     const out: Hit[] = [];
     for (const c of compileLists(ctx.settings)) {

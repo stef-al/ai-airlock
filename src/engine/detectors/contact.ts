@@ -6,6 +6,7 @@ import { mkHit } from './helpers';
 const EMAIL =
   /(?<![A-Za-z0-9._%+-])[A-Za-z0-9_][A-Za-z0-9._%+-]{0,63}@(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,24}(?![A-Za-z0-9-])/g;
 const FILE_TLD = new Set('png jpg jpeg gif svg webp ico bmp css js mjs ts tsx jsx json html htm xml woff woff2 ttf eot map md txt pdf zip gz tar'.split(' '));
+const SSH_BEFORE = /\b(?:ssh|scp|sftp|rsync|mosh|ssh-copy-id|sshpass)\b[^\n]*$/;
 const URL_CRED_BEFORE = /[a-z][a-z0-9+.-]*:\/\/[^\s/@]*:$/i;
 
 export const EMAIL_RE_SOURCE = EMAIL.source;
@@ -33,6 +34,7 @@ export const emailDetector: Detector = {
       const local = m[0].slice(0, m[0].indexOf('@'));
       // scp-style git remotes: git@github.com:org/repo.git
       if (local === 'git' && text[e] === ':' && !/\d/.test(text[e + 1] ?? '')) continue;
+      if (SSH_BEFORE.test(text.slice(Math.max(0, s - 100), s)) || /^:[~/.]/.test(text.slice(e, e + 2))) continue;
       if (URL_CRED_BEFORE.test(text.slice(Math.max(0, s - 120), s))) continue;
       out.push(mkHit('contact.email', 'EMAIL', s, e, 0.97, 'email address', 2, 'email'));
     }
@@ -47,6 +49,7 @@ export const emailDetector: Detector = {
 const PHONE_CAND = /(?<![\w.+/-])(?:\+|00)?\(?\d[\d\s().-]{5,22}\d(?![\w-]|\.\d)/g;
 const PHONE_CUE = /(?:tel(?:ephone|efon|éfono|efono)?|phone|mobile|mob\.?|cell|fax|call|handy|whatsapp|téléphone|telefono|teléfono|telefon|kontakt|contact|rufnummer|numéro|numero|número|phone number|kom[óo]rka|mobil)\b[\s:.#=-]{0,6}$/i;
 const DATE_LIKE = /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$|^\d{1,2}[-./]\d{1,2}[-./]\d{2,4}$|^\d{1,2}[:.]\d{2}[:.]\d{2}/;
+const DATE_START = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?!\d)/;
 const IP_LIKE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
 export function regionFromLocale(loc?: string): string {
@@ -78,7 +81,8 @@ export const phoneDetector: Detector = {
       cand = trimmed;
       const digits = cand.replace(/\D/g, '');
       if (digits.length < 7 || digits.length > 15) continue;
-      if (DATE_LIKE.test(cand) || IP_LIKE.test(cand)) continue;
+      if (DATE_LIKE.test(cand) || IP_LIKE.test(cand) || DATE_START.test(cand)) continue;
+      if (/^:\d/.test(text.slice(s + m[0].length, s + m[0].length + 2)) || text[s - 1] === ':') continue;
       const intl = /^(?:\+|00)/.test(cand);
       const hasSep = /[\s().-]/.test(cand);
       // short dotted groups are almost always versions / IPs / decimals

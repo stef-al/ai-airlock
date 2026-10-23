@@ -1,0 +1,17 @@
+#! name: deploy shell script
+#! file: deploy.sh
+#!---
+#!/bin/bash
+set -euo pipefail
+export DB_PASS=⟦PASSWORD:Dpl0y-Pa55⟧
+export API_TOKEN="${API_TOKEN:-}"
+mysql -u root -p⟦PASSWORD:RootPw!2024⟧ -e "SELECT 1"
+sshpass -p '⟦PASSWORD:Ssh-P4ss⟧' ssh deploy@build01.internal 'uptime'
+curl -u ci:⟦PASSWORD:Ci-Bot-Pw1⟧ https://nexus.example.com/repository/releases/
+psql "postgresql://app:⟦PASSWORD:Pg!Url-Pw3⟧@db01/billing" -c '\dt'
+cat > /tmp/creds <<EOT
+user=svc
+password=⟦PASSWORD:Hered0c-Pw⟧
+EOT
+echo "Done deploying version 2.4.1 to $HOST"
+# mail: ⟦EMAIL:ops@acme-industries.com⟧

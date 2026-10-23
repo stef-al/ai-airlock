@@ -1,0 +1,19 @@
+#! name: things that must not be masked
+#! file: traps.txt
+#! format: prose
+#!---
+Notes from the code review (nothing here is sensitive):
+
+getPassword() and resetUserPassword(userId) are fine. PASSWORD_MIN_LENGTH = 8 and password_hash column stay.
+Config reads process.env.DB_PASSWORD, os.environ["API_TOKEN"] and ${DB_PASS}; Windows uses %PASSWORD% instead.
+Secret manager paths: vault:secret/data/db#password and arn:aws:secretsmanager:eu-west-1:123456789012:secret:db-creds-AbCdEf
+Placeholders look like password: <your-password>, token: ****, API_KEY=xxx and secret=
+The prompt says "Enter your password:" and the error is "Password must be at least 8 characters". Password is required.
+Request id {{uuid:201}} was handled by commit {{hex:40:202}} (sha256 {{hex:64:203}}) in release v2.14.0 and 1.2.3-beta.
+Brand colors: #ff00cc, #1a2b3c and the theme uses rgba(0, 0, 0, 0.5). Image: data:image/png;base64,{{b64:120:204}}
+Mail to user@example.com or admin@example.org for details. The ID is 4521 and build 20240815 shipped on 2024-08-15 at 10:30:45.
+at com.acme.auth.PasswordEncoder.encode(PasswordEncoder.java:42)
+at com.acme.auth.TokenService.refreshToken(TokenService.java:118)
+Meeting with Monday Review, Annual Planning and the Spring Release Team. Sentence about keys: monkey: banana, keyboard layout.
+ENV PASSWORD_FILE=/run/secrets/db_password
+The token bucket limits requests; tokenizer settings and secretary notes are unrelated.

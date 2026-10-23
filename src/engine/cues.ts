@@ -14,6 +14,7 @@ const KW: [string, string, Strength][] = [
   ['contraseña', 'PASSWORD', 'strong'], ['contrasena', 'PASSWORD', 'strong'], ['clave', 'PASSWORD', 'weak'],
   ['parola', 'PASSWORD', 'weak'], ['hasło', 'PASSWORD', 'strong'], ['haslo', 'PASSWORD', 'strong'],
   ['heslo', 'PASSWORD', 'strong'], ['hesla', 'PASSWORD', 'strong'],
+  ['requirepass', 'PASSWORD', 'strong'], ['masterauth', 'PASSWORD', 'strong'],
   ['pin', 'PIN', 'medium'], ['pincode', 'PIN', 'medium'],
   // secrets
   ['secret', 'SECRET', 'strong'], ['secrets', 'SECRET', 'strong'], ['geheimnis', 'SECRET', 'strong'],
@@ -50,8 +51,15 @@ export const DEFAULT_QUALIFIERS: string[] = (
   'interface algorithm alg version mode format style source option options flag flags is has should can check verify ' +
   'stdin prompt dialog form input label title description desc tooltip visible show hide toggle icon button page view ' +
   'mismatch invalid incorrect wrong complexity history age days limit limits level levels required optional ' +
-  'placeholder example sample mask masked schema model dto entity bean test tests mock'
+  'placeholder example sample mask masked schema model dto entity bean test tests mock store storage'
 ).split(/\s+/);
+
+/** Class-like nouns that only cancel a cue when they come after it: PasswordService yes, ServicePassword no. */
+const AFTER_ONLY = new Set(
+  'service manager provider repository repo controller helper util utils encoder decoder factory handler filter validator validators config configuration class interface schema model dto entity bean test tests mock source store storage option options flag flags type types kind name names id ids label title description desc text message msg error errors err hint placeholder prompt dialog form input button page view icon tooltip visible show hide toggle format style mode version algorithm alg'.split(' '),
+);
+
+const VERBS = new Set('get is has check validate verify hash compare generate encode decode encrypt decrypt parse load read fetch find show hide toggle can should render format mask unmask display print log prompt ask'.split(' '));
 
 // words that must never count as the cue even though they contain it
 const NOT_CUE = new Set(['secretary', 'secretariat', 'secretive', 'secretion', 'secretly', 'tokenizer', 'tokenize', 'tokenization', 'tokenizers', 'compass', 'bypass', 'passage', 'passenger', 'passive', 'passion', 'passport', 'passing', 'password' + 'less']);
@@ -153,8 +161,11 @@ export class KeyAnalyzer {
     }
     if (!best) return null;
     const b = best as { type: string; strength: Strength; kw: string; idx: number };
+    // verbs in front make it a function / predicate name: getPassword, isPasswordValid, hashPassword
+    if (b.idx > 0 && VERBS.has(toks[0])) return { type: b.type, strength: b.strength, keyword: b.kw, negated: true, qualifier: toks[0] };
     for (let i = 0; i < toks.length; i++) {
       if (this.quals.has(toks[i]) && toks[i] !== b.kw) {
+        if (i < b.idx && AFTER_ONLY.has(toks[i])) continue;
         // "pass_through"/"password_hash"/"MIN_LENGTH"
         return { type: b.type, strength: b.strength, keyword: b.kw, negated: true, qualifier: toks[i] };
       }
@@ -168,6 +179,9 @@ export class KeyAnalyzer {
 // ---------------------------------------------------------------------------------------------
 
 const REF_RES: RegExp[] = [
+  /^%[-+# 0-9.]*[A-Za-z]$/,
+  /^\{\d*\}$/,
+  /^[?]$|^\$\d+$/,
   /\$\{[^}]*\}/,
   /^\$\(.*\)$/,
   /^\$[A-Za-z_][\w]*$/,

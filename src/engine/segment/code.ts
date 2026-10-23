@@ -636,7 +636,13 @@ export function segmentCode(text: string, lang: Lang): Part {
         b.add(t.s, t.e, 'comment');
         break;
       case 'str': {
-        const nx = sig.slice(i + 1).find((x) => x.k !== 'com');
+        let nx: Tok | undefined;
+        for (let q = i + 1; q < sig.length; q++) {
+          if (sig[q].k !== 'com') {
+            nx = sig[q];
+            break;
+          }
+        }
         const pv = sig[i - 1];
         const isKey =
           lang !== 'bash' &&

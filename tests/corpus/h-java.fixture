@@ -1,0 +1,34 @@
+#! name: Java Spring config
+#! file: DataSourceConfig.java
+#! set: holdout
+#!---
+package com.nordlicht.billing.config;
+
+import java.sql.Connection;
+import java.sql.DriverManager;
+import org.springframework.beans.factory.annotation.Value;
+
+public class DataSourceConfig {
+    private static final int PASSWORD_MIN_LENGTH = 12;
+    private static final String DEFAULT_USER = "billing";
+
+    @Value("${db.password}")
+    private String dbPassword;
+
+    // TODO: move to vault. Legacy password: ⟦PASSWORD:L3gacy-Pw!2019⟧
+    private final String adminPassword = "⟦PASSWORD:Adm1n#Billing7⟧";
+    private final String apiKey = "⟦API_KEY:{{ant:41}}⟧";
+
+    public Connection connect() throws Exception {
+        String url = "jdbc:postgresql://db01.internal:5432/billing";
+        return DriverManager.getConnection(url, "billing_rw", "⟦PASSWORD:Rw!9sT0rm⟧");
+    }
+
+    public boolean checkPassword(String candidate) {
+        return candidate != null && candidate.length() >= PASSWORD_MIN_LENGTH;
+    }
+
+    public String getPassword() { return dbPassword; }
+    public void resetUserPassword(String userId) { /* sends mail */ }
+    public String token = System.getenv("BILLING_TOKEN");
+}

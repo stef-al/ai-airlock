@@ -1,0 +1,35 @@
+#! name: kubernetes secret and deployment
+#! file: billing.yaml
+#!---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: billing-credentials
+  namespace: prod
+type: Opaque
+data:
+  db-password: ⟦SECRET:cGdfUHIwZC1QYTU1d29yZA==⟧
+  api-key: ⟦SECRET:{{b64:44:121}}⟧
+stringData:
+  smtp-password: ⟦SECRET:M@ilPr0d!77⟧
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing
+spec:
+  template:
+    spec:
+      containers:
+        - name: billing
+          image: registry.example.com/billing:2.1.0
+          env:
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: billing-credentials
+                  key: db-password
+            - name: LOG_LEVEL
+              value: info
+            - name: JWT_SECRET
+              value: ⟦SECRET:{{rand:40:122}}⟧

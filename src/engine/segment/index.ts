@@ -85,7 +85,7 @@ export function sniffLang(text: string): Lang | null {
   if (/^package \w+|^func \w*\(|\bfmt\.Print|:= /m.test(t)) add('go', 3);
   if (/\$\w+\s*=\s*['"$]|\becho\s+\$|->\w+\(|\barray\(/.test(t)) add('php', 1);
   if (/^\s*(?:SELECT\b[\s\S]*?\bFROM\b|INSERT\s+INTO|UPDATE\s+\w+\s+SET|CREATE\s+(?:TABLE|USER|LOGIN|DATABASE)|ALTER\s+(?:USER|TABLE|LOGIN)|DELETE\s+FROM|GRANT\b)/im.test(t)) add('sql', 5);
-  if (/\b(?:Write-Host|Get-\w+|Set-\w+|New-Object|ConvertTo-SecureString|\$env:\w+|Invoke-\w+)\b/.test(t)) add('powershell', 5);
+  if (/\b(?:Write-Host|Write-Output|New-Object|Get-ChildItem|Get-Content|Set-Content|Set-ExecutionPolicy|Invoke-WebRequest|Invoke-Command|Invoke-RestMethod|ConvertTo-SecureString|Import-Module|Get-Item|Set-Item|Start-Process|Out-File|Remove-Item|Test-Path|Get-Process|Get-Service|Select-Object|Where-Object|ForEach-Object|Get-Secret|Connect-\w+|New-PSSession)\b|\$env:\w+/.test(t)) add('powershell', 5);
   if (/^\s*(?:export \w+=|sudo |curl |wget |echo |apt(?:-get)? |docker |kubectl |mysql |psql |ssh |\$ )/m.test(t) || /\$\(|\bfi$/m.test(t)) add('bash', 3);
   let best: string | null = null;
   let bs = 0;
@@ -99,7 +99,11 @@ export function sniffLang(text: string): Lang | null {
 
 function jsonErrorRatio(text: string): number {
   let errs = 0;
-  visit(text, { onError: () => void errs++ }, { allowTrailingComma: true });
+  try {
+    visit(text, { onError: () => void errs++ }, { allowTrailingComma: true });
+  } catch {
+    return 1; // e.g. absurd nesting depth
+  }
   return errs / Math.max(1, text.length / 80);
 }
 
@@ -113,8 +117,9 @@ export function detectFormat(text: string, fileName?: string): FormatInfo {
   const frac = (re: RegExp) => (nonEmpty.length ? nonEmpty.filter((l) => re.test(l)).length / nonEmpty.length : 0);
 
   if (/^```|^~~~/m.test(sample)) return { format: 'markdown' };
-  if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && text.trim().length > 1 && jsonErrorRatio(sample) < 0.5 && /["\d\]}tfn]/.test(trimmed[1] ?? '"') ) {
-    if (/^[\[{]\s*[\]}"\d\[{tfn-]/.test(trimmed) || trimmed.startsWith('{')) return { format: 'json' };
+  if (/^\s*(?:(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) \S+ HTTP\/\d|HTTP\/\d(?:\.\d)? \d{3})/.test(sample)) return { format: 'log' };
+  if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && text.trim().length > 1 && jsonErrorRatio(sample) < 0.5) {
+    if (/^[\[{]\s*(?:[\]}"\d\[{-]|true|false|null)/.test(trimmed)) return { format: 'json' };
   }
   if (frac(/^\s*"[^"]+"\s*:\s*\S/) > 0.6) return { format: 'json' };
   if (/^\s*<\?xml|^\s*<[A-Za-z][\w:.-]*[\s>/]/.test(trimmed) && /<\/[A-Za-z][\w:.-]*>|\/>/.test(sample) && frac(/^\s*</) > 0.5) return { format: 'xml' };

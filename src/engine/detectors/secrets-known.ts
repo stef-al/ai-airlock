@@ -100,7 +100,7 @@ const JWT_RE = rx(`${B}eyJ[A-Za-z0-9_-]{8,}\\.eyJ[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_
 const PEM_RE = rx(`-----BEGIN ((?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?)-----`);
 const PUTTY_RE = rx(`PuTTY-User-Key-File-\\d: [\\s\\S]{0,12000}?Private-MAC: [0-9a-fA-F]+`);
 const URI_CRED = rx(`\\b([a-z][a-z0-9+.-]{1,24}):\\/\\/([^\\s:@/?#"'<>\\\\]{0,64}):([^\\s/"'<>\\\\]{1,200})@`, 'gi');
-const ADO = rx(`(?<![A-Za-z0-9_])(?:password|pwd)\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)'|\\{([^}\\n]*)\\}|([^;"'\\s][^;"'\\n]*))`, 'gi');
+const ADO = rx(`(?<![A-Za-z0-9_])(?:password|pwd)\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)'|\\{([^}\\n]*)\\}|([^;"'\\s]+))`, 'gi');
 const ADO_SIBLING = /(?:server|data source|host|initial catalog|database|user id|uid|integrated security|provider|driver|trusted_connection|addr|address)\s*=/i;
 const AUTH_HDR = rx(`\\bauthorization\\s*[:=]\\s*["']?\\s*(bearer|basic|token|digest|negotiate|ntlm|apikey|api-key)\\s+([A-Za-z0-9._~+/=-]{8,})`, 'gi');
 const COOKIE_HDR = rx(`\\b(?:set-)?cookie\\s*[:=]\\s*["']?([^\\r\\n"']{3,2000})`, 'gi');

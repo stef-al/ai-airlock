@@ -4,6 +4,9 @@ import { SegBuilder } from '../util';
 import type { Part } from './part';
 import { segmentKv } from './kv';
 
+const NAME_KEYS = new Set(['name', 'key', 'variable', 'env', 'var']);
+const VALUE_KEYS = new Set(['value', 'val', 'secret']);
+
 interface Item {
   start: number;
   end: number;
@@ -76,6 +79,21 @@ export function segmentYaml(text: string): Part {
       if (isScalar(node)) {
         addValue(node, key, keyNode, path);
       } else if (isMap(node)) {
+        // `- name: DB_PASSWORD` / `value: x` sibling pairs (Kubernetes env, CI configs)
+        let nameP: Scalar | null = null;
+        let valP: Scalar | null = null;
+        for (const p of node.items) {
+          if (!isPair(p) || !isScalar(p.key) || !isScalar(p.value)) continue;
+          const k = String(p.key.value).toLowerCase();
+          if (NAME_KEYS.has(k)) nameP = p.value as Scalar;
+          else if (VALUE_KEYS.has(k)) valP = p.value as Scalar;
+        }
+        if (nameP && valP) {
+          const ns = scalarSpan(nameP);
+          const vsp = scalarSpan(valP);
+          if (ns && vsp && vsp.end > vsp.start)
+            docPairs.push({ key: String(nameP.value), keyStart: ns.start, keyEnd: ns.end, valStart: vsp.start, valEnd: vsp.end, quote: vsp.quote, numeric: typeof valP.value === 'number', path, kind: 'element' });
+        }
         for (const p of node.items) {
           if (!isPair(p)) continue;
           const k = p.key as YNode | null;

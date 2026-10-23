@@ -1,0 +1,19 @@
+#! name: .NET appsettings
+#! file: appsettings.Production.json
+#! set: holdout
+#!---
+{
+  "Logging": { "LogLevel": { "Default": "Information", "Microsoft": "Warning" } },
+  "ConnectionStrings": {
+    "Default": "Server=sql01.nordlicht.local;Database=Billing;User Id=billing_app;Password=⟦PASSWORD:Qw3rty!Zx90⟧;TrustServerCertificate=True"
+  },
+  "Jwt": {
+    "Issuer": "https://auth.nordlicht.local",
+    "Audience": "billing-api",
+    "Key": "⟦SECRET:{{b64:44:51}}⟧",
+    "ExpiryMinutes": 60
+  },
+  "Smtp": { "Host": "smtp.nordlicht.local", "Port": 587, "Username": "mailer", "Password": "⟦PASSWORD:M@iler2024x⟧" },
+  "Stripe": { "SecretKey": "⟦API_KEY:{{stripe:52}}⟧", "WebhookTolerance": 300 },
+  "Auth": { "PasswordPolicy": { "MinLength": 12, "RequireDigit": true } }
+}

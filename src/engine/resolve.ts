@@ -73,30 +73,45 @@ export function resolveHits(doc: Doc, inputs: ResolveInput[], settings: Settings
     ok.push(hit);
   }
   ok.sort((a, b) => b.priority - a.priority || b.confidence - a.confidence || b.end - b.start - (a.end - a.start) || a.start - b.start);
-  // accepted intervals are disjoint; keep them sorted by start for O(log n) overlap checks
-  const acc: Hit[] = [];
-  const overlaps = (h: Hit): boolean => {
-    let lo = 0;
-    let hi = acc.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (acc[mid].start < h.start) lo = mid + 1;
-      else hi = mid;
-    }
-    if (lo > 0 && acc[lo - 1].end > h.start) return true;
-    if (lo < acc.length && acc[lo].start < h.end) return true;
-    return false;
+  // owner[pos] = index into ok of the accepted hit covering pos (-1 = free); linear overall
+  const owner = new Int32Array(doc.text.length + 1).fill(-1);
+  const accepted = new Set<number>();
+  const rejected: number[] = [];
+  const free = (h: Hit) => {
+    for (let p = h.start; p < h.end; p++) if (owner[p] !== -1) return false;
+    return true;
   };
-  for (const h of ok) {
-    if (overlaps(h)) continue;
-    let lo = 0;
-    let hi = acc.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (acc[mid].start < h.start) lo = mid + 1;
-      else hi = mid;
+  const claim = (h: Hit, id: number) => {
+    owner.fill(id, h.start, h.end);
+    accepted.add(id);
+  };
+  ok.forEach((h, id) => {
+    if (free(h)) claim(h, id);
+    else rejected.push(id);
+  });
+  // a longer hit that fully contains lower-priority hits wins (an email containing a client name)
+  rejected.sort((a, b) => ok[b].end - ok[b].start - (ok[a].end - ok[a].start));
+  for (const xi of rejected) {
+    const x = ok[xi];
+    if (x.priority < 2) continue;
+    const inside = new Set<number>();
+    for (let p = x.start; p < x.end; p++) if (owner[p] !== -1) inside.add(owner[p]);
+    if (!inside.size) continue;
+    let upgrade = true;
+    for (const id of inside) {
+      const a = ok[id];
+      if (!(x.start <= a.start && a.end <= x.end && x.end - x.start > a.end - a.start && a.priority !== 3)) {
+        upgrade = false;
+        break;
+      }
     }
-    acc.splice(lo, 0, h);
+    if (!upgrade) continue;
+    for (const id of inside) {
+      owner.fill(-1, ok[id].start, ok[id].end);
+      accepted.delete(id);
+    }
+    claim(x, xi);
   }
+  const acc = [...accepted].map((id) => ok[id]).sort((a, b) => a.start - b.start);
   return acc;
 }

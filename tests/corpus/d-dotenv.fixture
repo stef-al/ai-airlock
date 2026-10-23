@@ -1,0 +1,28 @@
+#! name: production dotenv
+#! file: .env.production
+#!---
+# Production environment (do not commit)
+NODE_ENV=production
+PORT=8080
+DATABASE_URL=postgres://billing:⟦PASSWORD:Pr0d-Pa55word⟧@db.internal:5432/billing
+REDIS_PASSWORD=⟦PASSWORD:r3d1s-Pr0d⟧
+JWT_SECRET=⟦SECRET:{{b64:48:101}}⟧
+AWS_ACCESS_KEY_ID=⟦API_KEY:{{aws:102}}⟧
+AWS_SECRET_ACCESS_KEY=⟦SECRET:{{awssecret:103}}⟧
+STRIPE_SECRET_KEY=⟦API_KEY:{{stripe:104}}⟧
+SENDGRID_API_KEY=⟦API_KEY:{{sg:105}}⟧
+OPENAI_API_KEY=⟦API_KEY:{{oai:106}}⟧
+SESSION_SECRET="⟦SECRET:{{rand:32:107}}⟧"
+ADMIN_PIN=⟦PIN:482913⟧
+PASSWORD_MIN_LENGTH=12
+PASSWORD_RESET_TTL=3600
+SECRET_STORE_PATH=/var/run/secrets/app
+DB_PASSWORD=${VAULT_DB_PASSWORD}
+API_BASE_URL=https://api.example.com
+FEATURE_FLAGS=darkmode,beta
+SENTRY_RELEASE={{hex:40:108}}
+BUILD_ID={{uuid:109}}
+GITHUB_TOKEN=⟦TOKEN:{{gh:110}}⟧
+EMPTY_PASSWORD=
+PLACEHOLDER_TOKEN=<your-token-here>
+MAIL_FROM=⟦EMAIL:billing@acme-industries.com⟧

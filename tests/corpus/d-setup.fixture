@@ -1,0 +1,12 @@
+#! name: powershell setup
+#! file: setup.ps1
+#!---
+$user = "svc_backup"
+$svcPassword = "⟦PASSWORD:P0wer!Shell9⟧"
+$secure = ConvertTo-SecureString "⟦PASSWORD:Sec-Str1ng!⟧" -AsPlainText -Force
+$cred = New-Object System.Management.Automation.PSCredential($user, $secure)
+Connect-Server -Host "srv01" -User "admin" -Password "⟦PASSWORD:Conn3ct-Pw⟧"
+$env:API_TOKEN = $env:CI_TOKEN
+$token = "⟦TOKEN:{{gh:181}}⟧"
+function Get-Password { param($Name) return (Get-Secret -Name $Name) }
+Write-Host "Password rotated for $user"

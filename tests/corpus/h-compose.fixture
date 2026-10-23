@@ -1,0 +1,28 @@
+#! name: docker compose with credentials
+#! file: docker-compose.yml
+#! set: holdout
+#!---
+version: "3.9"
+services:
+  db:
+    image: postgres:15.4
+    environment:
+      - POSTGRES_USER=app
+      - POSTGRES_PASSWORD=⟦PASSWORD:pg_Sup3rS3cret⟧
+      - POSTGRES_DB=appdb
+    ports:
+      - "5432:5432"
+  web:
+    image: registry.example.com/web:1.8.0
+    environment:
+      DATABASE_URL: postgres://app:⟦PASSWORD:pg_Sup3rS3cret⟧@db:5432/appdb
+      REDIS_URL: redis://:⟦PASSWORD:r3dis-p4ss⟧@cache:6379/0
+      SECRET_KEY_BASE: ⟦SECRET:{{hex:64:21}}⟧
+      STRIPE_API_KEY: ⟦API_KEY:{{stripe:22}}⟧
+      SMTP_PASSWORD: ${SMTP_PASSWORD}
+      LOG_LEVEL: debug
+      PASSWORD_RESET_URL: https://app.example.com/reset
+    depends_on: [db, cache]
+  cache:
+    image: redis:7
+    command: redis-server --requirepass ⟦PASSWORD:r3dis-p4ss⟧

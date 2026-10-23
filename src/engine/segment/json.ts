@@ -12,6 +12,8 @@ export function segmentJson(text: string): Part {
     key?: string;
     keyStart: number;
     keyEnd: number;
+    nameTok?: { text: string; start: number; end: number };
+    valTok?: { start: number; end: number; quote: string; num: boolean };
     /** key that owns this array/object */
     owner?: string;
     ownerStart: number;
@@ -39,7 +41,12 @@ export function segmentJson(text: string): Part {
     text,
     {
       onObjectBegin: () => openChild(false),
-      onObjectEnd: () => void stack.pop(),
+      onObjectEnd: () => {
+        const f = stack.pop();
+        if (f?.nameTok && f.valTok) {
+          pairs.push({ key: f.nameTok.text, keyStart: f.nameTok.start, keyEnd: f.nameTok.end, valStart: f.valTok.start, valEnd: f.valTok.end, quote: f.valTok.quote, numeric: f.valTok.num, kind: 'element', path: pathOf() });
+        }
+      },
       onArrayBegin: () => openChild(true),
       onArrayEnd: () => void stack.pop(),
       onObjectProperty: (property, offset, length) => {
@@ -59,6 +66,11 @@ export function segmentJson(text: string): Part {
         if (isStr) b.add(vs, ve, 'config', { quote: '"', vt: 'str' });
         else b.add(vs, ve, 'config', { vt: num ? 'num' : 'lit' });
         if (!top) return;
+        if (!top.arr && top.key) {
+          const lk = top.key.toLowerCase();
+          if (isStr && (lk === 'name' || lk === 'key' || lk === 'variable')) top.nameTok = { text: text.slice(vs, ve), start: vs, end: ve };
+          else if (lk === 'value' || lk === 'val') top.valTok = { start: vs, end: ve, quote: isStr ? '"' : '', num };
+        }
         const key = top.arr ? top.owner : top.key;
         if (!key) return;
         pairs.push({

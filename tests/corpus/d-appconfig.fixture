@@ -1,0 +1,27 @@
+#! name: .NET web.config
+#! file: Web.config
+#!---
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <appSettings>
+    <add key="ApiBaseUrl" value="https://api.example.com" />
+    <add key="ServicePassword" value="⟦PASSWORD:Svc!Pw#2024⟧" />
+    <add key="ApiToken" value="⟦TOKEN:{{rand:40:141}}⟧" />
+    <add key="MaxPasswordLength" value="64" />
+    <add key="PasswordRegex" value="^(?=.*[A-Z]).{8,}$" />
+  </appSettings>
+  <connectionStrings>
+    <add name="Main" connectionString="Data Source=sql01;Initial Catalog=Billing;User ID=sa;Password=⟦PASSWORD:Sa!Str0ng99⟧;" providerName="System.Data.SqlClient" />
+  </connectionStrings>
+  <system.net>
+    <mailSettings>
+      <smtp from="⟦EMAIL:noreply@acme-industries.com⟧">
+        <network host="smtp.acme.local" port="587" userName="relay" password="⟦PASSWORD:Rel@y#4431⟧" />
+      </smtp>
+    </mailSettings>
+  </system.net>
+  <secrets>
+    <password>⟦PASSWORD:El3ment-Pw⟧</password>
+    <timeout>30</timeout>
+  </secrets>
+</configuration>

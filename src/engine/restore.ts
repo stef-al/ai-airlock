@@ -19,6 +19,9 @@ export const KNOWN_TYPES = new Set(
     .map((t) => t.replace(/_/g, '')),
 );
 
+/** Case-insensitive literal without the i flag (so [a-z] lookaheads stay case-sensitive). */
+const ci = (s: string) => escapeRegExp(s).replace(/[A-Za-z]/g, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
+
 const BRACKET = String.raw`\[\s*([A-Za-z]+(?:_[A-Za-z]+)*?)[_\-\s]?(\d{1,6})\s*\]`;
 const BARE = String.raw`(?:(?<![A-Za-z0-9_])|(?<=[a-z0-9])(?=[A-Z]))([A-Za-z]+(?:_[A-Za-z]+)*?)[_-]?(\d{1,6})(?![0-9])(?![a-z])`;
 
@@ -32,8 +35,8 @@ export function restoreText(text: string, mapping: Mapping, expected?: Iterable<
   const fakes = mapping.fakeList().sort((a, b) => b.length - a.length);
   const knownTypes = new Set(KNOWN_TYPES);
   for (const e of mapping.entries()) knownTypes.add(e.type.replace(/_/g, ''));
-  const fakeAlt = fakes.length ? `(?<![\\w@.+-])(${fakes.map(escapeRegExp).join('|')})(?![\\w@-]|\\.\\d)` : '(?!)()';
-  const re = new RegExp(`${fakeAlt}|${BRACKET}|${BARE}`, 'gi');
+  const fakeAlt = fakes.length ? `(?<![\\w@.+-])(${fakes.map(ci).join('|')})(?![\\w@-]|\\.\\d)` : '(?!)()';
+  const re = new RegExp(`${fakeAlt}|${BRACKET}|${BARE}`, 'g');
   let total = 0;
   const output = text.replace(re, (m: string, fake?: string, bl?: string, bn?: string, rl?: string, rn?: string) => {
     if (fake) {

@@ -1,0 +1,15 @@
+#! name: java stack trace
+#! file: trace.txt
+#! format: prose
+#!---
+Exception in thread "main" java.sql.SQLInvalidAuthorizationSpecException: Access denied for user 'app'@'⟦IP:10.0.0.5⟧' (using password: YES)
+	at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:112)
+	at com.acme.billing.PasswordService.authenticate(PasswordService.java:77)
+	at com.acme.billing.TokenService.refreshToken(TokenService.java:118)
+	at com.acme.billing.Main.main(Main.java:23)
+Caused by: java.lang.IllegalStateException: Invalid password for user 'jdoe'
+	at com.acme.auth.PasswordEncoder.matches(PasswordEncoder.java:31)
+Connection URL was jdbc:mysql://app:⟦PASSWORD:Tr4ce-Db-Pw⟧@db01:3306/billing
+Traceback (most recent call last):
+  File "auth/password_utils.py", line 42, in check_password
+    raise ValueError("bad password")

@@ -1,0 +1,18 @@
+#! name: HR personnel record
+#! file: personnel.txt
+#! set: holdout
+#!---
+Personnel file (confidential)
+Employee: ⟦PERSON:Oliver Brandt⟧
+Date of birth: ⟦DOB:14.03.1985⟧
+SSN: ⟦SSN:{{ssn:3}}⟧
+National Insurance number: ⟦NINO:{{nino:4}}⟧
+PESEL: ⟦PESEL:{{pesel:5}}⟧
+Rodné číslo: ⟦BIRTH_NUMBER:{{rc:6}}⟧
+Home directory: /home/⟦USERNAME:obrandt⟧/projects
+Workstation profile: C:\Users\⟦USERNAME:oliver.brandt⟧\Documents\hr
+Employer: ⟦ORG:Brandt & Söhne GmbH⟧, subsidiary of ⟦ORG:Nordlicht Holding AG⟧
+
+Not personal data: purchase order 12345678901, invoice 123456789, claim 000-12-3456 and ref 123-45-678.
+Contract signed 2021-05-01; review due 03.04.2024. Shared profile C:\Users\Public\Desktop and /home/user/.cache are generic.
+Operating system build 10.0.19045 and library 4.17.21 are fine.

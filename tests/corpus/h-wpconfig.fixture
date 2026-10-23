@@ -1,0 +1,17 @@
+#! name: WordPress config
+#! file: wp-config.php
+#! set: holdout
+#!---
+<?php
+define('DB_NAME', 'wp_nordlicht');
+define('DB_USER', 'wp_admin');
+define('DB_PASSWORD', '⟦PASSWORD:Wp!Adm1n_2024⟧');
+define('DB_HOST', 'localhost');
+define('AUTH_KEY',         '⟦SECRET:{{rand:64:81}}⟧');
+define('SECURE_AUTH_KEY',  '⟦SECRET:{{rand:64:82}}⟧');
+define('WP_DEBUG', false);
+$table_prefix = 'wp_';
+// Mail relay
+$mail_password = '⟦PASSWORD:Rel@y-9921⟧';
+$config['api_token'] = getenv('API_TOKEN');
+function check_password($pw) { return strlen($pw) > 8; }

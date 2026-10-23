@@ -1,0 +1,29 @@
+#! name: python service
+#! file: service.py
+#!---
+import os
+import requests
+
+DB_PASSWORD = "⟦PASSWORD:Pyth0n-Sv!c3⟧"
+API_TOKEN = os.environ["API_TOKEN"]
+password: str = "⟦PASSWORD:Typ3d-Ann0t⟧"
+SECRET_KEY = os.getenv("SECRET_KEY", "")
+
+
+def check_password(candidate: str) -> bool:
+    """Validate password length (PASSWORD_MIN_LENGTH)."""
+    return len(candidate) >= 12
+
+
+def fetch(url):
+    # staging credentials: user svc_py, password: ⟦PASSWORD:St4ging#Cred⟧
+    resp = requests.get(url, auth=("svc_py", "⟦PASSWORD:Ta8le-Pw2⟧"), timeout=10)
+    return resp.json()
+
+
+def connect():
+    return psycopg2.connect(host="db01", user="app", password="⟦PASSWORD:Psy-C0pg2!⟧", dbname="billing")
+
+
+settings = {"smtp_password": "⟦PASSWORD:Smtp-Pw-88⟧", "retries": 3, "mode": "password"}
+user_password_hash = "x"

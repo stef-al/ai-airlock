@@ -1,0 +1,391 @@
+import { isPlaceholderValue, isReference, looksLikeCode, proseValueLooksSecret, valueVerdict, type KeyAnalyzer } from '../cues';
+import { SENS_RANK, type Detector, type Doc, type Hit, type Pair } from '../types';
+import { isWordCh, nameTokens, segAt, skipEmpty } from '../util';
+import { analyzerFor, formatLabel, isStructured, mkHit } from './helpers';
+
+const ID = 'secrets.context';
+
+const SETTER = new Set('set with use add update change reset store save put create new init configure assign apply basic bearer'.split(' '));
+const AUTHISH = new Set('login signin logon authenticate credentials credential connect connection getconnection createconnection auth basicauth'.split(' '));
+
+const OPEN_Q = new Set(['"', "'", '`', '“', '„', '«', '‘']);
+const CLOSE_Q: Record<string, string> = { '"': '"', "'": "'", '`': '`', '“': '”', '„': '“', '«': '»', '‘': '’' };
+
+function isKeyCh(c: string): boolean {
+  return isWordCh(c) || c === '.' || c === '-' || c === '$' || c >= 'À';
+}
+
+interface Val {
+  s: number;
+  e: number;
+  quoted: boolean;
+}
+
+function readValue(t: string, v: number): Val | null {
+  const n = t.length;
+  const c = t[v];
+  if (c === undefined) return null;
+  if (c === '\\' && (t[v + 1] === '"' || t[v + 1] === "'")) {
+    const q = t[v + 1];
+    const s = v + 2;
+    const e = t.indexOf('\\' + q, s);
+    if (e < 0 || e - s > 512 || t.slice(s, e).includes('\n')) return null;
+    return { s, e, quoted: true };
+  }
+  if (OPEN_Q.has(c)) {
+    const q = CLOSE_Q[c];
+    let j = v + 1;
+    while (j < n && j - v < 520) {
+      if (t[j] === '\\' && q === '"') {
+        j += 2;
+        continue;
+      }
+      // a doubled quote is an escaped quote in SQL, YAML, PowerShell and CSV: 'it''s'
+      if (t[j] === q && t[j + 1] === q && (q === "'" || q === '"') && j > v + 1) {
+        j += 2;
+        continue;
+      }
+      if (t[j] === q || t[j] === '\n') break;
+      j++;
+    }
+    if (t[j] !== q) return null;
+    return { s: v + 1, e: j, quoted: true };
+  }
+  if (c === '[' || c === '{' || c === '(' || c === '<' || c === '\n' || c === '\r') return null;
+  let j = v;
+  while (j < n && j - v < 256) {
+    const ch = t[j];
+    if (/[\s;&"'`<>]/.test(ch)) break;
+    // escape sequences inside a string literal end a bare value: "password=x\ntoken=y"
+    if (ch === '\\' && /[ntr"'\\]/.test(t[j + 1] ?? '')) break;
+    if (ch === ',' && (j + 1 >= n || /\s/.test(t[j + 1]))) break;
+    j++;
+  }
+  let e = j;
+  // trim trailing sentence punctuation / unmatched closers
+  while (e > v) {
+    const ch = t[e - 1];
+    if (ch === '.' || ch === ',' || ch === ':' || ch === ';') e--;
+    else if (ch === ')' || ch === ']' || ch === '}') {
+      const open = ch === ')' ? '(' : ch === ']' ? '[' : '{';
+      if (t.slice(v, e - 1).includes(open)) break;
+      e--;
+    } else break;
+  }
+  if (e <= v) return null;
+  return { s: v, e, quoted: false };
+}
+
+const PREP = 'for|of|to|on|at|von|für|fuer|zu|zum|zur|pour|de|du|des|para|per|di|da|pro|dla|do|na';
+const PROSE_CONN = new RegExp(
+  String.raw`\s+(?:(?:${PREP})\s+(?:the\s+|der\s+|die\s+|den\s+|dem\s+|le\s+|la\s+|les\s+|el\s+|il\s+|l')?[\p{L}\d._@-]+(?:\s+[\p{L}\d._@-]+){0,2}?)?\s*(?:(?:is|was|will\s+be|should\s+be|lautet|ist|war|est|était|es|era|è|jest|je|byl|bylo|to)\s*:?|:|=)\s*`,
+  'iuy',
+);
+
+function methodLabel(doc: Doc, p: Pair): string {
+  const l = formatLabel(doc);
+  return doc.format === 'markdown' ? '' : ` in ${l}`;
+}
+
+function fromPair(doc: Doc, p: Pair, an: KeyAnalyzer, aggressive: boolean): Hit | null {
+  const t = doc.text;
+  const raw = t.slice(p.valStart, p.valEnd);
+  if (p.hint === 'k8s-secret') {
+    if (!raw.trim() || isReference(raw)) return null;
+    return mkHit(ID, 'SECRET', p.valStart, p.valEnd, 0.95, `value under '${p.path?.split('.')[0]}' of a Kubernetes Secret`, 2, 'k8s-secret');
+  }
+  if (p.hint === 'docker-auth' && /^(auth|password|identitytoken|registrytoken)$/i.test(p.key)) {
+    if (!raw.trim()) return null;
+    return mkHit(ID, 'SECRET', p.valStart, p.valEnd, 0.93, `registry credential '${p.key}' in a Docker config`, 2, 'docker-auth');
+  }
+  if (p.kind === 'call') return fromCall(doc, p, an);
+  const ki = an.analyze(p.key);
+  if (!ki || ki.negated) return null;
+  let vs = p.valStart;
+  let value = raw;
+  const auth = /^(Bearer|Basic|Token|Digest)\s+/i.exec(value);
+  if (auth) {
+    vs += auth[0].length;
+    value = value.slice(auth[0].length);
+  }
+  const v = valueVerdict(value, {
+    strength: ki.strength,
+    type: ki.type,
+    quoted: p.quote !== '' && p.quote !== 'block',
+    passphrase: /passphrase|seed|mnemonic/.test(ki.keyword),
+    key: p.key,
+  });
+  if (!v.ok) return null;
+  if (!aggressive && ki.strength === 'weak' && v.conf < 0.6) return null;
+  const how = p.kind === 'sql' ? `value for column '${p.key}' in SQL INSERT` : `literal assigned to key '${p.key}'${methodLabel(doc, p)}`;
+  return mkHit(ID, ki.type, vs, p.valEnd, v.conf + 0.02, how, 2, 'pair');
+}
+
+function fromCall(doc: Doc, p: Pair, an: KeyAnalyzer): Hit | null {
+  const t = doc.text;
+  const raw = t.slice(p.valStart, p.valEnd);
+  if (p.numeric) return null;
+  const toks = nameTokens(p.key);
+  const ki = an.analyze(p.key);
+  const last = (p.argIndex ?? 0) === (p.argCount ?? 1) - 1;
+  if (ki && !ki.negated) {
+    const idx = toks.findIndex((x) => x === ki.keyword || x.includes(ki.keyword.replace(/\s/g, '')));
+    const setterOk = idx <= 0 || toks.slice(0, idx).every((x) => SETTER.has(x));
+    if (setterOk && last) {
+      const v = valueVerdict(raw, { strength: ki.strength, type: ki.type, quoted: true });
+      if (!v.ok) return null;
+      return mkHit(ID, ki.type, p.valStart, p.valEnd, v.conf, `argument of ${p.key}(…) in ${formatLabel(doc)}`, 2, 'call-cue');
+    }
+  }
+  if (toks.some((x) => AUTHISH.has(x)) && (p.argCount ?? 0) >= 2 && last) {
+    const v = valueVerdict(raw, { strength: 'medium', type: 'PASSWORD', quoted: true });
+    if (!v.ok || /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)) return null;
+    return mkHit(ID, 'PASSWORD', p.valStart, p.valEnd, Math.min(v.conf, 0.74), `last literal argument of ${p.key}(…) looks like a password`, 2, 'call-auth');
+  }
+  return null;
+}
+
+function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<number>): Hit[] {
+  const t = doc.text;
+  const n = t.length;
+  const out: Hit[] = [];
+  const re = an.regex;
+  re.lastIndex = 0;
+  const structured = isStructured(doc);
+  let m: RegExpExecArray | null;
+  let guard = 0;
+  while ((m = re.exec(t))) {
+    if (++guard > 400000) break;
+    const kStart = m.index;
+    const kEnd = kStart + m[0].length;
+    if (m[0].length === 0) {
+      skipEmpty(re, t);
+      continue;
+    }
+    let ws = kStart;
+    while (ws > 0 && kStart - ws < 64 && isKeyCh(t[ws - 1])) ws--;
+    let we = kEnd;
+    while (we < n && we - kEnd < 64 && isKeyCh(t[we])) we++;
+    re.lastIndex = Math.max(we, kEnd);
+    while (we > kEnd && (t[we - 1] === '.' || t[we - 1] === '-')) we--;
+    // pick the dotted segment containing the cue; it must be the last one (password.length is not a secret)
+    let dot = -1;
+    for (let q = kStart - 1; q >= ws; q--) {
+      if (t[q] === '.') {
+        dot = q;
+        break;
+      }
+    }
+    const segStart = dot >= 0 ? dot + 1 : ws;
+    let hasNextDot = false;
+    for (let q = kEnd; q < we; q++) {
+      if (t[q] === '.') {
+        hasNextDot = true;
+        break;
+      }
+    }
+    if (hasNextDot) continue;
+    let flag = false;
+    let k0 = segStart;
+    while (k0 < kStart && (t[k0] === '-' || t[k0] === '$' || t[k0] === '@')) {
+      if (t[k0] === '-') flag = true;
+      k0++;
+    }
+    if (flag && !(segStart === 0 || /[\s=\[(,]/.test(t[segStart - 1]))) flag = false;
+    const word = t.slice(k0, we);
+    const ki = an.analyze(word);
+    if (!ki || ki.negated) continue;
+    // ${DB_PASSWORD:-default}: the reference is not a secret, its default value is handled by REF_DEFAULT
+    if (t[ws - 1] === '{' && t[ws - 2] === '$') continue;
+    // cue inside an ARN / vault path / URL-ish reference token
+    let tb = ws;
+    while (tb > 0 && ws - tb < 120 && !/\s/.test(t[tb - 1])) tb--;
+    if (/^(?:arn:|vault:|ssm:|op:\/\/|projects\/|secret\/|kv\/)/i.test(t.slice(tb, tb + 12))) continue;
+
+    // closing quotes / escapes of a quoted key, then the delimiter
+    let p = we;
+    while (p < n && (t[p] === '"' || t[p] === "'" || t[p] === '`' || t[p] === ']' || t[p] === '\\')) p++;
+    let q = p;
+    while (q < n && (t[q] === ' ' || t[q] === '\t')) q++;
+    const sym = /^(?::=|=>|===|==|=|:)/.exec(t.slice(q, q + 3));
+    let vstart = -1;
+    let loose = false;
+    if (sym) {
+      if (sym[0] === ':' && (t[q + 1] === ':' || t[q + 1] === '/')) continue;
+      let a = q + sym[0].length;
+      while (a < n && (t[a] === ' ' || t[a] === '\t')) a++;
+      // namespaced names such as 'secret:mocks' or "token:refresh" are identifiers, not assignments
+      if (sym[0] === ':' && q === p && a === q + 1 && /^[a-z]+$/.test(word) && /^[a-z][a-z0-9_-]*(?![\w@.])/.test(t.slice(a, a + 40))) {
+        const m2 = /^[a-z][a-z0-9_-]*/.exec(t.slice(a, a + 40))!;
+        if (!/\d/.test(m2[0])) continue;
+      }
+      vstart = a;
+    } else if (flag && q > p) {
+      if (t[q] === '-') continue;
+      vstart = q;
+    } else if (/^[\p{L}]+$/u.test(word)) {
+      PROSE_CONN.lastIndex = we;
+      const pc = PROSE_CONN.exec(t);
+      if (pc) {
+        vstart = we + pc[0].length;
+        loose = true;
+      }
+    }
+    if (vstart < 0) continue;
+    let val = readValue(t, vstart);
+    if (val && !val.quoted && sym && /passphrase|seed|mnemonic/.test(ki.keyword)) {
+      let e = t.indexOf('\n', val.s);
+      if (e < 0) e = n;
+      while (e > val.s && /[\s.,;]/.test(t[e - 1])) e--;
+      val = { s: val.s, e, quoted: false };
+    }
+    if (!val) continue;
+    if (skip.has(val.s)) continue;
+    const value = t.slice(val.s, val.e);
+    // "user / pass: admin / secret": the first value is the user name, handled by the user/pass rule
+    if (!val.quoted && /^\s+[/|]\s+\S/.test(t.slice(val.e, val.e + 6))) continue;
+    // sentences: "Password: please enter ..." in free text
+    if (!val.quoted && (!structured || segAt(doc, val.s)?.scope !== 'config')) {
+      const rest = t.slice(val.e, val.e + 24);
+      if (/^[ \t]+[a-z]{2,}/.test(rest) && /^[A-Za-z]+$/.test(value) && !loose) continue;
+    }
+    let vs = val.s;
+    let text = value;
+    // openssl-style password sources: pass:<secret> is literal, env:/file:/fd: are references
+    if (flag && /^(?:env|file|fd):/.test(text)) continue;
+    if (flag && text.startsWith('pass:')) {
+      vs += 5;
+      text = text.slice(5);
+    }
+    const auth = /^(Bearer|Basic|Token|Digest)\s+(?=\S)/i.exec(text);
+    if (auth) {
+      vs += auth[0].length;
+      text = text.slice(auth[0].length);
+    }
+    if (loose && !proseValueLooksSecret(text, val.quoted, aggressive)) continue;
+    const v = valueVerdict(text, {
+      strength: ki.strength,
+      type: ki.type,
+      quoted: val.quoted,
+      passphrase: /passphrase|seed|mnemonic/.test(ki.keyword),
+      key: word,
+      loose,
+    });
+    if (!v.ok) continue;
+    if (!aggressive && ki.strength === 'weak' && v.conf < 0.6) continue;
+    const how = loose ? `value stated after '${t.slice(kStart, kEnd)}' in text` : flag ? `value of command-line flag '${t.slice(segStart, we)}'` : `literal assigned to '${word}'`;
+    out.push(mkHit(ID, ki.type, vs, vs + text.length, v.conf, how, 2, loose ? 'prose' : flag ? 'cli-flag' : 'text-kv'));
+  }
+  return out;
+}
+
+const USER_PASS =
+  /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
+const LOGIN_PAIR =
+  /\b(?:logins?|creds?|credentials|zugangsdaten|zugang|access|account|identifiants|credenciales|credenziali|dane logowania|přihlašovací údaje)\b[^\n]{0,60}?(?:\bis\b|\bare\b|\bist\b|\bsind\b|:|=)\s*['"`]?([\w.@-]{2,40})['"`]?\s*[/|]\s*['"`]?([^\s/|'"`]{4,64})/gi;
+const B64_CRED =
+  /(?:btoa|base64(?:\.b64encode|\.encode|\.urlsafe_b64encode)?|Buffer\.from|b64encode|ToBase64String|encodebytes|GetBytes)\(\s*(?:b?['"`])([^'"`:\s]{1,64}):([^'"`\s]{3,128})['"`]/g;
+const AUTH_TUPLE = /\b(?:auth|credentials|basic_?auth|http_?auth)\s*[=:]\s*[(\[]\s*(['"])([^'"\n]{0,64})\1\s*,\s*(['"])([^'"\n]{3,128})\3\s*[)\]]/gi;
+
+/** ${DB_PASSWORD:-literal} (shell, compose) and ${db.password:literal} (Spring): the default is a real value. */
+const REF_DEFAULT = /\$\{([A-Za-z_][A-Za-z0-9_.-]{0,80})(:-|:=|:\?|:|-|=)([^}\s"'`]{1,200})\}/g;
+/** Terraform / HCL: variable "db_password" { default = "…" } */
+const HCL_VAR = /\bvariable\s+"([^"\n]{1,80})"\s*\{([^{}]{0,800})\}/g;
+/** Windows: setx API_KEY "value" (no '=' between name and value) */
+const SETX = /(?:^|[\s;&|(])setx\s+([A-Za-z_][\w.]{0,80})\s+(?:"([^"\n]*)"|([^\s"]+))/gim;
+
+function extra(doc: Doc, skip: Set<number>, an: KeyAnalyzer): Hit[] {
+  const t = doc.text;
+  const out: Hit[] = [];
+  const keyed = (name: string, raw: string, start: number, quoted: boolean, reason: string, rule: string) => {
+    const ki = an.analyze(name);
+    if (!ki || ki.negated || skip.has(start)) return;
+    const v = valueVerdict(raw, { strength: ki.strength, type: ki.type, quoted, key: name });
+    if (v.ok) out.push(mkHit(ID, ki.type, start, start + raw.length, v.conf, reason, 2, rule));
+  };
+  let r: RegExpExecArray | null;
+  REF_DEFAULT.lastIndex = 0;
+  while ((r = REF_DEFAULT.exec(t))) {
+    const def = r[3];
+    const start = r.index + r[0].length - 1 - def.length;
+    keyed(r[1], def, start, false, `default value of the reference \${${r[1]}}`, 'ref-default');
+  }
+  if (t.includes('variable')) {
+    HCL_VAR.lastIndex = 0;
+    while ((r = HCL_VAR.exec(t))) {
+      const body = r[2];
+      const d = /\bdefault\s*=\s*"((?:[^"\\\n]|\\.)*)"/.exec(body);
+      if (!d) continue;
+      const start = r.index + r[0].indexOf(body) + d.index + d[0].indexOf('"') + 1;
+      keyed(r[1], d[1], start, true, `default of the Terraform variable '${r[1]}'`, 'hcl-default');
+    }
+  }
+  if (/setx/i.test(t)) {
+    SETX.lastIndex = 0;
+    while ((r = SETX.exec(t))) {
+      const raw = r[2] ?? r[3];
+      const start = r.index + r[0].length - raw.length - (r[2] !== undefined ? 1 : 0);
+      keyed(r[1], raw, start, r[2] !== undefined, `value set for '${r[1]}' with setx`, 'setx');
+    }
+  }
+  USER_PASS.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = USER_PASS.exec(t))) {
+    const v = m[2].replace(/["'`:;,.!?)\]}]+$/, '');
+    const s = m.index + m[0].length - m[2].length;
+    if (v.length < 3 || looksLikeCode(v, false)) continue;
+    if (isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.8, "second value of a 'user / password' pair in text", 2, 'user-pass'));
+  }
+  LOGIN_PAIR.lastIndex = 0;
+  while ((m = LOGIN_PAIR.exec(t))) {
+    const v = m[2].replace(/["'`:;,.!?)\]}]+$/, '');
+    const s = m.index + m[0].lastIndexOf(m[2]);
+    if (v.length < 4 || looksLikeCode(v, false)) continue;
+    if (!(/\d/.test(v) || /[^A-Za-z0-9]/.test(v)) || isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.72, "second value of a 'login: user / password' pair in text", 2, 'login-pair'));
+  }
+  B64_CRED.lastIndex = 0;
+  while ((m = B64_CRED.exec(t))) {
+    const v = m[2];
+    const s = m.index + m[0].lastIndexOf(v);
+    if (isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.82, 'password in user:password text that is about to be base64-encoded', 2, 'b64-cred'));
+  }
+  AUTH_TUPLE.lastIndex = 0;
+  while ((m = AUTH_TUPLE.exec(t))) {
+    const v = m[4];
+    const s = m.index + m[0].lastIndexOf(v);
+    if (isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.8, 'password in an (user, password) auth tuple', 2, 'auth-tuple'));
+  }
+  return out;
+}
+
+export const secretsContext: Detector = {
+  id: ID,
+  label: 'Secrets by context (names, assignments, prose)',
+  category: 'secret',
+  types: ['PASSWORD', 'SECRET', 'TOKEN', 'API_KEY', 'PIN'],
+  defaultScopes: ['prose', 'comment', 'string', 'config'],
+  detect(doc, cfg, ctx) {
+    if (SENS_RANK[cfg.sensitivity] < SENS_RANK.balanced) return [];
+    const an = analyzerFor(ctx.settings);
+    const aggressive = cfg.sensitivity === 'aggressive';
+    const hits: Hit[] = [];
+    const skip = new Set<number>();
+    for (const p of doc.pairs) {
+      const h = fromPair(doc, p, an, aggressive);
+      if (h) {
+        hits.push(h);
+        skip.add(h.start);
+      }
+      skip.add(p.valStart);
+    }
+    ctx.check();
+    hits.push(...scanText(doc, an, aggressive, skip));
+    ctx.check();
+    hits.push(...extra(doc, skip, an));
+    return hits;
+  },
+};

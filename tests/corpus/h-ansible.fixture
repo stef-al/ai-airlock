@@ -1,0 +1,27 @@
+#! name: ansible group vars
+#! file: group_vars/staging.yml
+#! set: holdout
+#!---
+---
+# Ansible group vars for the staging cluster
+app_name: billing-service
+app_version: 3.14.2
+ansible_user: deploy
+ansible_password: ⟦PASSWORD:Tr1cky-Pa55!⟧
+ansible_become_pass: "⟦PASSWORD:sudo#Pw2024⟧"
+db_host: ⟦HOST:db01.staging.internal⟧
+db_port: 5432
+db_user: billing
+db_password: ⟦PASSWORD:c0rrectHorse9⟧
+db_password_file: /run/secrets/db_password
+vault_db_password: "{{ lookup('env', 'VAULT_DB_PASSWORD') }}"
+api_token: ⟦TOKEN:{{gl:11}}⟧
+session_timeout: 3600
+password_min_length: 12
+password_policy:
+  require_symbols: true
+  max_age_days: 90
+checksum_sha256: {{hex:64:5}}
+release_commit: {{hex:40:6}}
+instance_id: {{uuid:7}}
+contact: ⟦EMAIL:ops-team@globex-corp.net⟧

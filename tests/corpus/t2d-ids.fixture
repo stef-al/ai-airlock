@@ -1,0 +1,9 @@
+#! name: employee records with IDs
+#! file: employees.json
+#!---
+[
+  {"name": "⟦PERSON:Ola Kowalska⟧", "dob": "⟦DOB:1991-07-23⟧", "pesel": "⟦PESEL:{{pesel:11}}⟧", "note": "hired 2019-05-01"},
+  {"name": "⟦PERSON:Jan Novák⟧", "birthdate": "⟦DOB:12.05.1985⟧", "rc": "⟦BIRTH_NUMBER:{{rc:12}}⟧", "invoice": "20240815123"},
+  {"name": "⟦PERSON:Jim Carter⟧", "date_of_birth": "⟦DOB:03/14/1978⟧", "ssn": "⟦SSN:{{ssn:13}}⟧", "zip": "123456789"},
+  {"name": "⟦PERSON:Amy Black⟧", "nino": "⟦NINO:{{nino:14}}⟧", "card": "000-12-3456", "ref": "AB123456"}
+]

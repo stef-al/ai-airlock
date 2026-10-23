@@ -1,0 +1,43 @@
+#! name: credential files
+#! file: creds.md
+#!---
+## ~/.npmrc
+```ini
+registry=https://registry.example.com/
+//registry.example.com/:_authToken=⟦TOKEN:{{npm:211}}⟧
+always-auth=true
+```
+
+## ~/.pypirc
+```ini
+[distutils]
+index-servers = internal
+
+[internal]
+repository = https://pypi.example.com/
+username = svc_pypi
+password = ⟦PASSWORD:Pypi#Upl0ad1⟧
+```
+
+## ~/.netrc
+```
+machine git.example.com login ci password ⟦PASSWORD:Netrc-Pw-77⟧
+```
+
+## ~/.pgpass
+```
+⟦HOST:db01.internal⟧:5432:billing:app:⟦PASSWORD:Pgp@ss-Fi1e⟧
+```
+
+## ~/.aws/credentials
+```ini
+[default]
+aws_access_key_id = ⟦API_KEY:{{aws:212}}⟧
+aws_secret_access_key = ⟦SECRET:{{awssecret:213}}⟧
+region = eu-west-1
+```
+
+## ~/.git-credentials
+```
+https://deploy:⟦PASSWORD:Git-Cr3d-Pw⟧@github.com
+```

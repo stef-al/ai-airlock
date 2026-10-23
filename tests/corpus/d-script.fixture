@@ -1,0 +1,26 @@
+#! name: node script
+#! file: sync.js
+#!---
+const axios = require('axios');
+const PASSWORD_MIN_LENGTH = 8;
+const password = "⟦PASSWORD:Summer2024!⟧";
+const config = {
+  host: '⟦HOST:db01.internal⟧',
+  user: 'sync',
+  dbPassword: '⟦PASSWORD:Sync#Db-77⟧',
+  apiKey: process.env.SYNC_API_KEY,
+  "client_secret": "⟦SECRET:{{rand:36:161}}⟧",
+  token: `⟦TOKEN:{{gh:162}}⟧`,
+};
+
+async function login(user, pass) {
+  return axios.post('/auth', { user, pass });
+}
+
+function getPassword() { return config.dbPassword; }
+function resetUserPassword(userId) { return `reset:${userId}`; }
+
+login("admin", "⟦PASSWORD:Zx9!qwerty⟧").then(() => console.log("Password reset email sent"));
+const re = /["']password["']\s*:\s*["'][^"']+["']/g;
+const url = `https://api.example.com/v1?key=${process.env.KEY}&mode=test`;
+module.exports = { getPassword, config };

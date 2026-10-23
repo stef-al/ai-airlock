@@ -11,6 +11,7 @@ const CASES: [string, string, string][] = [
   ['docker compose', 'yaml', 'version: "3.9"\nservices:\n  db:\n    image: postgres:15\n    environment:\n      - POSTGRES_PASSWORD=x\n      SMTP: ${SMTP_PASSWORD}\n    ports:\n      - "5432:5432"\n'],
   ['k8s multi doc', 'yaml', 'apiVersion: v1\nkind: Secret\nmetadata:\n  name: a\ndata:\n  pw: eA==\n---\napiVersion: apps/v1\nkind: Deployment\nmetadata:\n  name: b\n'],
   ['github actions', 'yaml', 'name: ci\non: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n    env:\n      TOKEN: ${{ secrets.TOKEN }}\n    steps:\n      - uses: actions/checkout@v4\n      - run: npm test\n'],
+  ['yaml with block scalars', 'yaml', "token: 'a''b'\nkey: |\n  -----BEGIN KEY-----\n  b3BlbnNzaC1rZXk\n  -----END KEY-----\nnote: >\n  call me\n  later please\n"],
   ['yaml list of maps', 'yaml', '- name: db\n  password: a1\n- name: cache\n  password: b2\n'],
   ['json object', 'json', '{\n  "a": 1,\n  "b": {"c": "d"}\n}\n'],
   ['json fragment', 'json', '"user": "bob",\n"password": "x",\n"port": 5432\n'],

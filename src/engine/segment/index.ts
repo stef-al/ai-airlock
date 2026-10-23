@@ -82,11 +82,12 @@ const LANG_SIGNALS: [Lang, RegExp, number][] = [
   ['python', /^\s*(?:import [\w.]+(?: as \w+)?|from [\w.]+ import [\w*, ]+)\s*$/m, 3],
   ['python', /^\s*(?:elif |if __name__ == |with open\(|try:\s*$|except(?: \w+)?(?: as \w+)?:\s*$)/m, 3],
   ['python', /\bself\.\w+|\bprint\(|\bNone\b|\bTrue\b|\bFalse\b/, 1],
-  ['js', /^\s*(?:export\s+)?(?:const|let|var)\s+[\w${}[\], ]+\s*=/m, 2],
+  ['js', /^\s*(?:export\s+)?(?:const|let|var)\s+[\w${}[\], ]{1,120}=/m, 2],
   ['js', /\brequire\(['"]|\bmodule\.exports\b|\bexports\.\w+\s*=|\bconsole\.(?:log|error|warn|info)\(|\bdocument\.\w|\bwindow\.\w|\bprocess\.env\b/, 3],
   ['js', /=>\s*[{(]|\bfunction\s*\*?\s*\w*\s*\(|^\s*import\s*(?:[\w*{][^'"\n]*?\s*from\s*)?['"]|^\s*export\s*(?:default\b|const\b|let\b|var\b|function\b|class\b|async\b|\{|\*)/m, 3],
   ['js', /\bawait\s+[\w.(]|===|!==|\bthis\.\w+|\bnew\s+(?:Promise|Map|Set|Error|Date)\b|\.then\(|\bundefined\b/, 1],
-  ['ts', /\binterface\s+\w+(?:<[^>{}\n]*>)?\s*(?:extends\s+[^{\n]+)?\{|\btype\s+\w+(?:<[^=\n]*>)?\s*=[^=>]|\bas const\b|\bimplements\s+\w+|\b(?:public|private|protected|readonly)\s+\w+\??\s*:/, 3],
+  ['js', /\bfetch\(|\baddEventListener\(|\bJSON\.(?:parse|stringify)\(|\bPromise\.\w+\(|\bsetTimeout\(|`[^`\n]{0,200}\$\{[^}\n]{1,80}\}[^`\n]{0,200}`/, 2],
+  ['ts', /\binterface\s+\w+(?:<[^>{}\n]{0,200}>)?\s*(?:extends\s+[^{\n]{1,300})?\{|\btype\s+\w+(?:<[^=\n]{0,200}>)?\s*=[^=>]|\bas const\b|\bimplements\s+\w+|\b(?:public|private|protected|readonly)\s+\w+\??\s*:/, 3],
   ['ts', /\bimport\s+type\b|\bexport\s+(?:declare|type|interface|enum|abstract)\b|^\s*declare\s+(?:const|let|function|class|module|namespace|global|type)\b|\w\??:\s*(?:string|number|boolean|void|unknown|any|never|bigint|undefined)(?:\[\])?\s*[;,)=|]/m, 3],
   ['java', /^\s*package [\w.]+;\s*$/m, 4],
   ['java', /\bimport java\.|\bimport javax\.|\bimport org\.springframework|\bSystem\.out\.print|@Override|@Autowired|\bString\[\] args|\bpublic\s+(?:final\s+)?class\s+\w+(?:\s+extends|\s+implements|\s*\{)/, 3],
@@ -176,7 +177,7 @@ function markdownScore(lines: string[]): number {
   for (const l of lines) {
     if (/^#{1,6}\s+\S/.test(l)) headings++;
     if (/^\s*(?:[-*+]|\d{1,3}[.)])\s+\S/.test(l) && !/^\s*-\s+[\w"'./-]+:(?:\s|$)/.test(l)) bullets++;
-    links += (l.match(/\[[^\]\n]+\]\([^)\s]+\)/g) ?? []).length;
+    links += (l.match(/\[[^\]\n]{1,200}\]\([^)\s]{1,500}\)/g) ?? []).length;
     if (/\*\*[^*\n]+\*\*|`[^`\n]+`|^>\s/.test(l)) inline++;
   }
   return Math.min(headings, 3) * 2 + Math.min(bullets, 3) + Math.min(links, 3) + Math.min(inline, 2);
@@ -214,7 +215,15 @@ export function detectFormat(text: string, fileName?: string): FormatInfo {
   }
 
   // configuration: judged on the lines that are not comments (config files are full of '# ...' notes)
-  const cfg = nonEmpty.filter((l) => !COMMENT_LINE.test(l));
+  // nor the body of a YAML block scalar (key: | followed by more indented lines)
+  const cfg: string[] = [];
+  let blockIndent = -1;
+  for (const l of nonEmpty) {
+    const ind = l.length - l.trimStart().length;
+    if (blockIndent >= 0 && ind > blockIndent) continue;
+    blockIndent = /:\s*[|>][+-]?\d?\s*$/.test(l) ? ind : -1;
+    if (!COMMENT_LINE.test(l)) cfg.push(l);
+  }
   if (cfg.length >= 2) {
     const n = cfg.length;
     const env = count(cfg, ENV_LINE);
@@ -232,10 +241,13 @@ export function detectFormat(text: string, fileName?: string): FormatInfo {
   }
 
   // code: a recognised language and mostly code-shaped lines (comments with '# ' or ' * ' are not headings or bullets)
-  const lang = sniffLang(sample);
+  let lang = sniffLang(sample);
   const shape = codeShapeRatio(lines.slice(0, 400));
+  // unknown C-family code (statements ending in ; { }) is lexed like JavaScript
+  if (!lang && shape >= 0.75 && nonEmpty.length >= 2 && count(nonEmpty, /[;{}]\s*(?:\/\/.*)?$/) / nonEmpty.length >= 0.6) lang = 'js';
   if (lang && shape >= 0.55) return { format: 'code', lang };
-  if (hasMarkdownTable(lines) || markdownScore(lines) >= 4) return { format: 'markdown' };
+  const md = markdownScore(lines);
+  if (md >= 4 || hasMarkdownTable(lines)) return { format: 'markdown' };
   const d = sniffDelimiter(sample);
   if (d && nonEmpty.length >= 3 && !(d === '|' && count(nonEmpty, /^\s*\|/) / nonEmpty.length > 0.5)) {
     const hdrOk = !/\s{2,}/.test(nonEmpty[0]) || d === '\t';
@@ -246,7 +258,7 @@ export function detectFormat(text: string, fileName?: string): FormatInfo {
   // a chat message that merely mentions a command is prose, not a script
   const codeLike = count(nonEmpty, /[{};=$|&<>]|\s-{1,2}[A-Za-z]|^\s*(?:#|\/\/|--)|\w\(/) / Math.max(1, nonEmpty.length);
   if (lang && codeLike >= 0.4) return { format: 'code', lang };
-  if (markdownScore(lines) >= 3) return { format: 'markdown' };
+  if (md >= 3) return { format: 'markdown' };
   return { format: 'prose' };
 }
 

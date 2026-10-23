@@ -1,5 +1,5 @@
 import { Guard, type GuardResult } from './guard';
-import { candidatesFor, hostOf, type Host, Mapping } from './placeholders';
+import { candidatesFor, hostOf, type Entry, type Host, Mapping } from './placeholders';
 import type { Doc, Hit, PlaceholderStyle, SegScope } from './types';
 import { segAt } from './util';
 
@@ -29,6 +29,8 @@ interface Plan {
   idx: number;
   id: string | null;
   skip: boolean;
+  /** the mapping entry was created for this replacement (released again if it is skipped) */
+  entry?: Entry;
 }
 
 export interface StyleResolver {
@@ -57,7 +59,24 @@ function relaxedScopes(doc: Doc, plans: Plan[], upTo: number): Set<SegScope> {
   return r;
 }
 
-const MAX_GUARD_RUNS = 80;
+/** The guard re-parses the whole output per check: bound the work by runs and by time. */
+const MAX_GUARD_RUNS = 400;
+const GUARD_MS = 3000;
+
+/** Offsets of each applied placeholder in the fully assembled output (-1 when skipped). */
+function outStarts(text: string, plans: Plan[]): number[] {
+  const at: number[] = [];
+  let shift = 0;
+  for (const p of plans) {
+    if (p.skip) {
+      at.push(-1);
+      continue;
+    }
+    at.push(p.hit.start + shift);
+    shift += p.cands[p.idx].length - (p.hit.end - p.hit.start);
+  }
+  return at;
+}
 
 /**
  * Replace the given (non-overlapping, sorted) hits by placeholders, then verify with the structure
@@ -71,58 +90,66 @@ export function maskHits(doc: Doc, hits: Hit[], mapping: Mapping, styleOf: Style
     const style = styleOf(hit);
     const host = hostOf(doc, hit);
     if (style === 'redact') return { hit, host, cands: candidatesFor({ id: '', type: hit.type, n: 0, original: orig }, host, style, mapping), idx: 0, id: null, skip: false };
+    const known = mapping.has(orig);
     const entry = mapping.allocate(hit.type, orig);
-    return { hit, host, cands: candidatesFor(entry, host, style, mapping), idx: 0, id: entry.id, skip: false };
+    return { hit, host, cands: candidatesFor(entry, host, style, mapping), idx: 0, id: entry.id, skip: false, entry: known ? undefined : entry };
   });
 
   const guard = new Guard(doc);
+  const deadline = Date.now() + GUARD_MS;
+  const spent = () => guard.runs >= MAX_GUARD_RUNS || Date.now() > deadline;
   const issues: string[] = [];
   let skippedCount = 0;
-  const fullCheck = () => guard.check(assemble(text, plans, plans.length), relaxedScopes(doc, plans, plans.length));
-  let err = guard.trivial ? null : fullCheck();
-  if (err) {
-    // locate culprits by binary search on the number of applied replacements
-    for (let round = 0; round < 40 && err && guard.runs < MAX_GUARD_RUNS; round++) {
+  const checkPrefix = (upTo: number) => guard.check(assemble(text, plans, upTo), relaxedScopes(doc, plans, upTo));
+  const ok = (upTo: number) => checkPrefix(upTo) === null;
+  let err = guard.trivial ? null : checkPrefix(plans.length);
+  // Each round finds the first culprit: the replacement i such that the first i are fine and the
+  // first i+1 are not. The place where the structure first differs usually points right at it
+  // (two checks); otherwise binary search. The culprit gets its next candidate, or is skipped.
+  for (let round = 0; err && round < 60; round++) {
+    if (spent()) {
+      // out of budget: keep the remaining replacements (a leak is worse than a broken structure)
+      issues.push('structure check budget exhausted: some replacements could not be verified');
+      break;
+    }
+    let hi = -1;
+    if (err.at !== undefined) {
+      const at = outStarts(text, plans);
+      let g = -1;
+      for (let i = 0; i < plans.length; i++) if (at[i] >= 0 && at[i] <= err.at) g = i;
+      if (g >= 0 && ok(g) && !ok(g + 1)) hi = g + 1;
+    }
+    if (hi < 0) {
       let lo = 0;
-      let hi = plans.length;
-      while (hi - lo > 1 && guard.runs < MAX_GUARD_RUNS) {
+      hi = plans.length;
+      while (hi - lo > 1 && !spent()) {
         const mid = (lo + hi) >> 1;
-        if (guard.check(assemble(text, plans, mid), relaxedScopes(doc, plans, mid)) === null) lo = mid;
+        if (ok(mid)) lo = mid;
         else hi = mid;
       }
-      const p = plans[hi - 1];
-      if (!p) break;
-      if (guard.runs >= MAX_GUARD_RUNS) {
-        // out of budget: drop everything not yet proven safe
-        for (let i = lo; i < plans.length; i++) {
-          if (!plans[i].skip) {
-            plans[i].skip = true;
-            skippedCount++;
-          }
-        }
-        issues.push('guard budget exhausted; unverified replacements were not applied');
-        err = null;
+      if (hi - lo > 1) continue; // budget ran out mid-search
+    }
+    const p = plans[hi - 1];
+    if (!p) break;
+    let fixed = false;
+    while (p.idx + 1 < p.cands.length && !spent()) {
+      p.idx++;
+      if (ok(hi)) {
+        fixed = true;
         break;
       }
-      let fixed = false;
-      for (let c = p.idx + 1; c < p.cands.length; c++) {
-        p.idx = c;
-        if (guard.check(assemble(text, plans, hi), relaxedScopes(doc, plans, hi)) === null) {
-          fixed = true;
-          break;
-        }
-      }
-      if (!fixed) {
-        p.skip = true;
-        skippedCount++;
-        issues.push(`skipped ${p.hit.type} at ${p.hit.start}: ${err}`);
-      }
-      err = fullCheck();
     }
-    if (err) {
-      issues.push(err);
+    if (!fixed) {
+      p.skip = true;
+      skippedCount++;
+      issues.push(`skipped ${p.hit.type} at ${p.hit.start}: ${err.message}`);
     }
+    err = checkPrefix(plans.length);
   }
+  if (err) issues.push(err.message);
+
+  const used = new Set(plans.filter((p) => !p.skip).map((p) => p.id));
+  for (const p of plans) if (p.skip && p.entry && !used.has(p.id)) mapping.release(p.entry);
 
   const replacements: Replacement[] = [];
   const skipped: Hit[] = [];

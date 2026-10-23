@@ -76,16 +76,16 @@ function lexGeneric(text: string, lang: Lang): Tok[] {
   const lastSig = () => toks[toks.length - 1];
 
   /** scan a quoted string whose opening quote is at `qi`; returns index after the closing quote. */
-  const scanQuoted = (qi: number, q: string, mode: 'esc' | 'dbl' | 'raw' | 'both', startTok: number): number => {
+  const scanQuoted = (qi: number, q: string, mode: 'esc' | 'dbl' | 'raw' | 'both' | 'ps', startTok: number): number => {
     let j = qi + 1;
     while (j < n) {
       const ch = text[j];
-      if (ch === '\\' && (mode === 'esc' || mode === 'both')) {
+      if ((ch === '\\' && (mode === 'esc' || mode === 'both')) || (ch === '`' && mode === 'ps')) {
         j += 2;
         continue;
       }
       if (ch === q) {
-        if ((mode === 'dbl' || mode === 'both') && text[j + 1] === q) {
+        if ((mode === 'dbl' || mode === 'both' || mode === 'ps') && text[j + 1] === q) {
           j += 2;
           continue;
         }
@@ -254,7 +254,8 @@ function lexGeneric(text: string, lang: Lang): Tok[] {
         continue;
       }
       if (sp.ps) {
-        i = scanQuoted(i, c, 'dbl', i);
+        // "..." escapes with a backtick or a doubled quote, '...' only with a doubled quote
+        i = scanQuoted(i, c, c === '"' ? 'ps' : 'dbl', i);
         continue;
       }
       i = scanQuoted(i, c, 'esc', i);

@@ -4,6 +4,9 @@ import { ibanValid, luhn } from '../src/engine/detectors/financial';
 import { compileUserRegex } from '../src/engine/userRegex';
 import { KeyAnalyzer, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS } from '../src/engine/cues';
 import { expandMacros } from './tokens';
+import { buildDoc } from '../src/engine/segment';
+import { maskHits } from '../src/engine/mask';
+import type { Hit } from '../src/engine/types';
 
 const S = (p?: Partial<Settings>) => mergeSettings(defaultSettings('US'), p);
 const run = (text: string, p?: Partial<Settings>, opts: Record<string, unknown> = {}, mapping = new Mapping()) => maskText(text, S(p), mapping, opts);
@@ -61,11 +64,23 @@ describe('placeholders', () => {
     expect(r.output).toContain('ask [EMAIL_1] for the token');
     expect(restoreText(r.output, r.mapping).output).toBe(t);
   });
+  it('reads doubled quotes as escaped quotes in text', () => {
+    const r = run("the token is 'Sq-T0ken''s-Value9' as agreed", {}, { format: 'prose' });
+    expect(r.output).toBe("the token is '[TOKEN_1]' as agreed");
+  });
   it('fakes and redaction are configurable per category', () => {
     const f = run('password=hunter22x', { categories: { secret: { enabled: true, style: 'fake' } } as never });
     expect(f.output).not.toContain('hunter22x');
     expect(f.output).toMatch(/password=[a-z]{6}\d{2}[a-z]$/);
     expect(restoreText(f.output, f.mapping).output).toBe('password=hunter22x');
+    // fakes keep the original's punctuation, so they stay valid in URLs and shell words, and come back
+    const fakeAll = { categories: { secret: { enabled: true, style: 'fake' }, network: { enabled: true, style: 'fake' } } as never };
+    const t = 'DATABASE_URL=postgres://app:Pg!Url-Pw3@db.internal:5432/x\nmysql -u root -pRootPw!2024 -e "SELECT 1"\n';
+    const g = run(t, fakeAll, { fileName: 'deploy.sh' });
+    expect(g.output).not.toContain('Pg!Url-Pw3');
+    expect(g.output).toMatch(/postgres:\/\/app:[A-Za-z]{2}![A-Za-z]{3}-[A-Za-z]{2}\d@/);
+    expect(g.output).toMatch(/-p[A-Za-z]{6}!\d{4} /);
+    expect(restoreText(g.output, g.mapping).output).toBe(t);
     const r = run('password=hunter22x', { categories: { secret: { enabled: true, style: 'redact' } } as never });
     expect(r.output).toBe('password=█████');
   });
@@ -80,6 +95,17 @@ describe('placeholders', () => {
     expect(on.output).toMatch(/return client\d_id;/);
     expect(on.guard.ok).toBe(true);
     expect(restoreText(on.output, on.mapping).output).toBe(code);
+  });
+});
+
+describe('lexers', () => {
+  it('reads PowerShell escapes: backtick and doubled quotes', () => {
+    const t = '$msg = "He said `"use it`" now"\n$pw = "Ps-Esc4pe!9"\nWrite-Host \'it\'\'s\' $pw\n';
+    const strings = buildDoc(t, { fileName: 'a.ps1' }).segments.filter((x) => x.scope === 'string').map((x) => t.slice(x.start, x.end));
+    expect(strings).toEqual(['He said `"use it`" now', 'Ps-Esc4pe!9', "it''s"]);
+    const r = run(t, {}, { fileName: 'a.ps1' });
+    expect(r.output).toContain('$pw = "[PASSWORD_1]"');
+    expect(r.guard.ok).toBe(true);
   });
 });
 
@@ -111,7 +137,7 @@ describe('restore', () => {
   it('tolerates what chatbots do to placeholders', () => {
     const m = new Mapping();
     const r = run('password=hunter22x and contact bob@acme.io, token=abcdEFGH1234ijklmn', {}, {}, m);
-    const variants = ['[PASSWORD_1]', 'PASSWORD_1', '`PASSWORD_1`', '[password_1]', 'Password-1', '**[PASSWORD_1]**', '[ PASSWORD_1 ]'];
+    const variants = ['[PASSWORD_1]', 'PASSWORD_1', '`PASSWORD_1`', '[password_1]', 'Password-1', '**[PASSWORD_1]**', '[ PASSWORD_1 ]', 'PASSWORD\\_1', '\\[PASSWORD\\_1\\]', '{PASSWORD_1}'];
     for (const v of variants) {
       const out = restoreText(`use ${v} here`, m).output;
       expect(out, v).toContain('hunter22x');
@@ -124,6 +150,13 @@ describe('restore', () => {
     expect(rep.unknown).toEqual(['[PASSWORD_9]']);
     expect(rep.missing).toEqual(['PASSWORD_1']);
     expect(rep.restored.map((x) => x.id).sort()).toEqual(['EMAIL_1', 'TOKEN_1']);
+  });
+  it('restores placeholders inside paths and escapes', () => {
+    const t = 'path C:\\Users\\jdoe\\secrets.txt and /home/jdoe/.ssh';
+    const r = run(t, {}, { format: 'prose' });
+    expect(r.output).toBe('path C:\\Users\\USERNAME_1\\secrets.txt and /home/USERNAME_1/.ssh');
+    expect(restoreText(r.output, r.mapping).output).toBe(t);
+    expect(restoreText('"line1\\nUSERNAME_1"', r.mapping).output).toBe('"line1\\njdoe"');
   });
   it('restores fake emails in a different case', () => {
     const m = new Mapping();
@@ -165,6 +198,31 @@ describe('settings', () => {
   });
 });
 
+describe('structure guard', () => {
+  it('finds each culprit cheaply and skips only those', () => {
+    const parts: string[] = [];
+    for (let i = 0; i < 400; i++) parts.push(`"k${i}": "value-${i}-secret"`);
+    const text = '{' + parts.join(', ') + '}';
+    const doc = buildDoc(text, { format: 'json' });
+    const hits: Hit[] = [];
+    let pos = 0;
+    for (let i = 0; i < 400; i++) {
+      const vs = text.indexOf(`"value-${i}-`, pos) + 1;
+      const ve = text.indexOf('"', vs);
+      // every 50th hit runs over the closing quote and the next key: no placeholder can be valid there
+      hits.push({ start: vs, end: i % 50 === 7 ? ve + 4 : ve, detector: 't', type: 'SECRET', category: 'secret', confidence: 0.9, reason: '', priority: 2 });
+      pos = ve;
+    }
+    const mapping = new Mapping();
+    const r = maskHits(doc, hits, mapping, () => 'token');
+    expect(r.skipped.map((h) => hits.indexOf(h) % 50)).toEqual(Array(8).fill(7));
+    expect(r.guard.ok).toBe(true);
+    expect(r.guard.runs).toBeLessThan(60);
+    expect(JSON.parse(r.output).k8).toBe('[SECRET_9]');
+    expect(mapping.size).toBe(392); // skipped values are not kept in the mapping
+  });
+});
+
 describe('robustness', () => {
   it('can be cancelled', () => {
     let n = 0;
@@ -177,6 +235,8 @@ describe('robustness', () => {
       '"\\'.repeat(big / 4), '1 '.repeat(big / 2), '-'.repeat(big), '=+/'.repeat(big / 3), 'a.'.repeat(big / 2) + 'b@', '://'.repeat(big / 6),
       '-----BEGIN RSA PRIVATE KEY-----'.repeat(2000), 'DE89 '.repeat(big / 10), '4111 '.repeat(big / 10), 'password is '.repeat(big / 20),
       'eyJ'.repeat(big / 6), '$2a$10$'.repeat(big / 14), '['.repeat(big / 2), '\n'.repeat(big), 'x='.repeat(big / 2),
+      // format sniffing
+      'type a<'.repeat(big / 7), 'const '.repeat(big / 6), '[a]('.repeat(big / 4), 'a('.repeat(big / 2), '- a: '.repeat(big / 5),
     ];
     for (const s of inputs) {
       const t0 = Date.now();

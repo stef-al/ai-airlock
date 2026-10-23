@@ -40,6 +40,11 @@ function readValue(t: string, v: number): Val | null {
         j += 2;
         continue;
       }
+      // a doubled quote is an escaped quote in SQL, YAML, PowerShell and CSV: 'it''s'
+      if (t[j] === q && t[j + 1] === q && (q === "'" || q === '"') && j > v + 1) {
+        j += 2;
+        continue;
+      }
       if (t[j] === q || t[j] === '\n') break;
       j++;
     }

@@ -37,14 +37,17 @@ export class Mapping {
   entries(): Entry[] {
     return [...this.byOriginal.values()];
   }
+  has(original: string): boolean {
+    return this.byOriginal.has(original);
+  }
   lookupNorm(type: string, n: number | string): Entry | undefined {
     return this.byNorm.get(normKey(type, n));
   }
   lookupFake(s: string): Entry | undefined {
     return this.byFakeMap.get(s.toLowerCase());
   }
-  fakeList(): string[] {
-    return [...this.byFakeMap.keys()];
+  fakeEntries(): Entry[] {
+    return [...this.byFakeMap.values()];
   }
   clear(): void {
     this.byOriginal.clear();
@@ -86,6 +89,14 @@ export class Mapping {
     this.byOriginal.set(original, e);
     this.byNorm.set(normKey(type, n), e);
     return e;
+  }
+
+  /** Forget an entry that ended up unused (its replacement was skipped). */
+  release(e: Entry): void {
+    if (this.byOriginal.get(e.original) !== e) return;
+    this.byOriginal.delete(e.original);
+    this.byNorm.delete(normKey(e.type, e.n));
+    if (e.fake) this.byFakeMap.delete(e.fake.toLowerCase());
   }
 
   setFake(e: Entry, fake: string): void {
@@ -195,23 +206,24 @@ function hash(s: string): number {
   return h >>> 0;
 }
 
-const SAFE_SYMBOLS = '!#%*+=-_';
-
-/** Shape-preserving random replacement that is always safe inside string literals and URLs. */
+/**
+ * Shape-preserving random replacement: letters and digits are randomised (case kept), every other
+ * character stays, so the fake is valid wherever the original was (URLs, shell words, quotes).
+ */
 export function shapeFake(original: string, seed: number): string {
   const rnd = mulberry32(seed);
   let out = '';
   for (const ch of original) {
-    if (/[a-z]/.test(ch)) out += String.fromCharCode(97 + Math.floor(rnd() * 26));
-    else if (/[A-Z]/.test(ch)) out += String.fromCharCode(65 + Math.floor(rnd() * 26));
-    else if (/\d/.test(ch)) out += String(Math.floor(rnd() * 10));
-    else if (/\s/.test(ch)) out += '-';
-    else if (SAFE_SYMBOLS.includes(ch)) out += SAFE_SYMBOLS[Math.floor(rnd() * SAFE_SYMBOLS.length)];
-    else if (/[^\x00-\x7f]/.test(ch)) out += String.fromCharCode(97 + Math.floor(rnd() * 26));
-    else out += SAFE_SYMBOLS[Math.floor(rnd() * SAFE_SYMBOLS.length)];
+    if (/\d/.test(ch)) out += String(Math.floor(rnd() * 10));
+    else if (/[A-Z]/.test(ch) || (ch !== ch.toLowerCase() && /\p{L}/u.test(ch))) out += String.fromCharCode(65 + Math.floor(rnd() * 26));
+    else if (/\p{L}/u.test(ch)) out += String.fromCharCode(97 + Math.floor(rnd() * 26));
+    else out += ch;
   }
   return out;
 }
+
+/** Fakes with a fixed format (prefix + counter); everything else is a random shape fake. */
+export const FORMAT_FAKE_TYPES = new Set(['EMAIL', 'IP', 'IPV6', 'MAC', 'HOST', 'CARD', 'IBAN', 'PHONE']);
 
 function luhnCheckDigit(body: string): string {
   let sum = 0;
@@ -301,8 +313,8 @@ export function makeFake(e: Entry, mapping: Mapping, salt = 0): string | null {
       return ok(s) ? s : salt < 20 ? makeFake(e, mapping, salt + 1) : null;
     }
     default: {
+      if ((original.match(/[\p{L}\d]/gu) ?? []).length < 6) return null;
       const s = shapeFake(original, seed);
-      if (original.length < 4) return null;
       return ok(s) ? s : salt < 20 ? makeFake(e, mapping, salt + 1) : null;
     }
   }
@@ -330,7 +342,8 @@ export const REDACTION = '█████';
  * the structure guard rejects it.
  */
 export function candidatesFor(e: Entry, host: Host, style: PlaceholderStyle, mapping: Mapping): string[] {
-  if (style === 'redact') return [REDACTION];
+  // a number stays a number (JSON/YAML numbers cannot hold the block characters)
+  if (style === 'redact') return host.kind === 'number' ? ['0', REDACTION] : [REDACTION];
   const out: string[] = [];
   const token = e.id;
   const wantFake =

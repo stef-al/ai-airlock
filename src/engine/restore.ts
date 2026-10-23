@@ -1,4 +1,4 @@
-import type { Mapping } from './placeholders';
+import { FORMAT_FAKE_TYPES, type Mapping } from './placeholders';
 import { escapeRegExp } from './util';
 
 export interface RestoreReport {
@@ -22,8 +22,9 @@ export const KNOWN_TYPES = new Set(
 /** Case-insensitive literal without the i flag (so [a-z] lookaheads stay case-sensitive). */
 const ci = (s: string) => escapeRegExp(s).replace(/[A-Za-z]/g, (c) => `[${c.toLowerCase()}${c.toUpperCase()}]`);
 
-const BRACKET = String.raw`\[\s*([A-Za-z]+(?:_[A-Za-z]+)*?)[_\-\s]?(\d{1,6})\s*\]`;
-const BARE = String.raw`(?:(?<![A-Za-z0-9_])|(?<=[a-z0-9])(?=[A-Z]))([A-Za-z]+(?:_[A-Za-z]+)*?)[_-]?(\d{1,6})(?![0-9])(?![a-z])`;
+// markdown output may escape the brackets and underscores: \[PASSWORD\_1\]
+const BRACKET = String.raw`\\?\[\s*([A-Za-z]+(?:\\?_[A-Za-z]+)*?)(?:\\?_|[-\s])?(\d{1,6})\s*\\?\]`;
+const BARE = String.raw`(?:(?<![A-Za-z0-9_])|(?<=[a-z0-9])(?=[A-Z]))([A-Za-z]+(?:\\?_[A-Za-z]+)*?)(?:\\?_|-)?(\d{1,6})(?![0-9])(?![a-z])`;
 
 /**
  * Put originals back. Tolerates what chatbots do to placeholders: dropped or changed brackets,
@@ -32,10 +33,21 @@ const BARE = String.raw`(?:(?<![A-Za-z0-9_])|(?<=[a-z0-9])(?=[A-Z]))([A-Za-z]+(?
 export function restoreText(text: string, mapping: Mapping, expected?: Iterable<string>): RestoreReport {
   const counts = new Map<string, number>();
   const unknown = new Set<string>();
-  const fakes = mapping.fakeList().sort((a, b) => b.length - a.length);
+  // formatted fakes (user1@example.com, 192.0.2.1, 1000042) need boundaries so user1 never matches
+  // inside user12; random shape fakes are unique strings and are found anywhere (glued to -p, in URLs)
+  const formatted: string[] = [];
+  const random: string[] = [];
+  for (const e of mapping.fakeEntries()) {
+    if (!e.fake) continue;
+    (FORMAT_FAKE_TYPES.has(e.type) || !/[A-Za-z]/.test(e.fake) ? formatted : random).push(e.fake);
+  }
+  const byLen = (a: string, b: string) => b.length - a.length;
   const knownTypes = new Set(KNOWN_TYPES);
   for (const e of mapping.entries()) knownTypes.add(e.type.replace(/_/g, ''));
-  const fakeAlt = fakes.length ? `(?<![\\w.+-])(${fakes.map(ci).join('|')})(?![\\w@-]|\\.\\d)` : '(?!)()';
+  const alts: string[] = [];
+  if (random.length) alts.push(random.sort(byLen).map(ci).join('|'));
+  if (formatted.length) alts.push(`(?<![\\w.+-])(?:${formatted.sort(byLen).map(ci).join('|')})(?![\\w@-]|\\.\\d)`);
+  const fakeAlt = alts.length ? `(${alts.join('|')})` : '(?!)()';
   const re = new RegExp(`${fakeAlt}|${BRACKET}|${BARE}`, 'g');
   let total = 0;
   const output = text.replace(re, (m: string, fake?: string, bl?: string, bn?: string, rl?: string, rn?: string) => {
@@ -46,7 +58,7 @@ export function restoreText(text: string, mapping: Mapping, expected?: Iterable<
       total++;
       return e.original;
     }
-    const letters = bl ?? rl;
+    const letters = (bl ?? rl)?.replace(/\\/g, '');
     const num = bn ?? rn;
     if (!letters || !num) return m;
     const e = mapping.lookupNorm(letters, num);

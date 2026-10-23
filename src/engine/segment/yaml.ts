@@ -19,7 +19,8 @@ interface Item {
 export function segmentYaml(text: string): Part {
   let docs;
   try {
-    docs = parseAllDocuments(text, { keepSourceTokens: false, prettyErrors: false, strict: false });
+    // uniqueKeys: the duplicate-key check is quadratic in the size of a map and irrelevant here
+    docs = parseAllDocuments(text, { keepSourceTokens: false, prettyErrors: false, strict: false, uniqueKeys: false });
   } catch {
     return segmentKv(text, 'yaml-lite');
   }

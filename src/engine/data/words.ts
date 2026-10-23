@@ -30,6 +30,8 @@ export const ORG_LEAD_STOP = w(`
   the a an our your my this that these those please contact visit call from to at in on dear hi hello thanks customer client company supplier vendor partner
   between and with for of by via see attn attention regarding re subject employer owner buyer seller licensor licensee parties agreement signed sent
   we us they he she it is are was were be been mr mrs ms miss dr prof herr frau sir madam
+  copyright present c all rights reserved licensed under powered made built maintained sponsored developed designed published
+  trademark trademarks registered owned operated provided brought presented
 `);
 
 export const ROLE_LOCALS = w(`

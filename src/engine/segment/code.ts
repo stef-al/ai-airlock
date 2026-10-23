@@ -625,8 +625,34 @@ function extractPairs(text: string, toks: Tok[], lang: Lang): Pair[] {
   return pairs;
 }
 
+/**
+ * PowerShell passes unquoted arguments as strings: `-Password hunter2`, `$x = abc` (rare) and cmd-style
+ * `set NAME=value`. Turn such bare words into string literals so detectors may look at them.
+ */
+function psBareArgs(text: string, toks: Tok[]): void {
+  const sig = toks.filter((t) => t.k !== 'com');
+  for (let i = 1; i < sig.length; i++) {
+    const t = sig[i];
+    if (t.k !== 'id') continue;
+    const p1 = sig[i - 1];
+    const p2 = sig[i - 2];
+    const p3 = sig[i - 3];
+    const afterParam = p1.k === 'id' && p2?.k === 'op' && p2.t === '-' && p2.e === p1.s && !(p3 && p3.e === p2.s);
+    const afterEq = p1.k === 'op' && p1.t === '=' && p1.e === t.s;
+    if (afterParam || afterEq) {
+      t.k = 'str';
+      t.cs = t.s;
+      t.ce = t.e;
+      t.q = '';
+      t.bare = true;
+      t.t = text.slice(t.s, t.e);
+    }
+  }
+}
+
 export function segmentCode(text: string, lang: Lang): Part {
   const toks = lang === 'bash' ? lexShell(text) : lexGeneric(text, lang);
+  if (lang === 'powershell') psBareArgs(text, toks);
   const b = new SegBuilder(text.length);
   const sig = toks;
   for (let i = 0; i < sig.length; i++) {

@@ -3,8 +3,38 @@ import type { Pair } from '../types';
 import { SegBuilder } from '../util';
 import { shiftPart, type Part } from './part';
 
+/** One JSON value per line (NDJSON / JSON Lines logs). */
+function isJsonLines(text: string): boolean {
+  const lines = text.split('\n').filter((l) => l.trim());
+  return lines.length >= 2 && lines.every((l) => /^\s*[[{].*[\]}]\s*,?\s*$/.test(l));
+}
+
+function segmentJsonLines(text: string): Part {
+  const b = new SegBuilder(text.length);
+  const pairs: Pair[] = [];
+  let errors = 0;
+  let pos = 0;
+  while (pos <= text.length) {
+    let e = text.indexOf('\n', pos);
+    if (e < 0) e = text.length;
+    const line = text.slice(pos, e);
+    if (line.trim()) {
+      const part = shiftPart(segmentJsonRaw(line), pos);
+      for (const sg of part.segments) {
+        const { start, end, scope, ...rest } = sg;
+        b.add(start, end, scope, rest);
+      }
+      pairs.push(...part.pairs);
+      errors += part.errors;
+    }
+    pos = e + 1;
+  }
+  return { segments: b.finish(), pairs, columns: [], errors };
+}
+
 /** Pasted JSON is often a fragment ("key": value, ...); wrap it in braces so it parses. */
 export function segmentJson(text: string): Part {
+  if (isJsonLines(text)) return segmentJsonLines(text);
   if (/^\s*[[{]/.test(text) || !text.trim()) return segmentJsonRaw(text);
   const inner = shiftPart(segmentJsonRaw('{' + text + '\n}'), -1);
   const len = text.length;

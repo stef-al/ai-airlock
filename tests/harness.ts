@@ -84,7 +84,9 @@ export function fixtureSettings(f: Fixture): Settings {
   return mergeSettings(defaultSettings(region ?? 'US'), rest as Partial<Settings>);
 }
 
-export function analyzeFixture(f: Fixture) {
+/** `sniff`: ignore the fixture's file name and format, as when text is pasted without a file. */
+export function analyzeFixture(f: Fixture, sniff = false) {
+  if (sniff) return analyze(f.text, fixtureSettings(f), { format: 'auto' });
   return analyze(f.text, fixtureSettings(f), { fileName: f.fileName, format: (f.format as never) ?? 'auto' });
 }
 
@@ -123,7 +125,7 @@ export interface Evaluation {
   details: Detail[];
 }
 
-export function evaluate(fixtures: Fixture[]): Evaluation {
+export function evaluate(fixtures: Fixture[], sniff = false): Evaluation {
   const t2 = tier2Active();
   const byCategory: Record<string, Counts> = {};
   const byDetector: Record<string, Counts> = {};
@@ -132,7 +134,7 @@ export function evaluate(fixtures: Fixture[]): Evaluation {
   const details: Detail[] = [];
   const bump = (m: Record<string, Counts>, k: string, f: (c: Counts) => void) => f((m[k] ??= zero()));
   for (const fx of fixtures) {
-    const a = analyzeFixture(fx);
+    const a = analyzeFixture(fx, sniff);
     const skip = (t: string) => !t2 && TIER2_TYPES.has(t);
     const exp = fx.spans.filter((s) => !skip(s.type));
     const hits = a.hits.filter((h) => !skip(h.type));

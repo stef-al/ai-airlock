@@ -1,4 +1,4 @@
-import { isPlaceholderValue, isReference, valueVerdict } from '../cues';
+import { isPlaceholderValue, isReference, looksLikeCode, valueVerdict } from '../cues';
 import type { Detector, Doc, Hit, RunCtx } from '../types';
 import { charClasses } from '../util';
 import { analyzerFor, mkHit } from './helpers';
@@ -137,7 +137,7 @@ const CLI: Cli[] = [
 const SPECIAL_PARAMS = /^(?:sig|signature|sas|x-amz-signature|x-amz-security-token|x-goog-signature|code_verifier|apikey|api_key|api-key)$/i;
 
 function cleanSecret(s: string): boolean {
-  return !isPlaceholderValue(s) && !isReference(s) && notFake(s);
+  return s.length >= 3 && !isPlaceholderValue(s) && !isReference(s) && notFake(s) && !looksLikeCode(s, false);
 }
 
 function* matches(re: RegExp, text: string): Generator<RegExpExecArray> {
@@ -236,6 +236,9 @@ export const secretsKnown: Detector = {
         const pw = m[3];
         const v = valueVerdict(decodeSafe(pw), { strength: 'strong', type: 'PASSWORD', quoted: false });
         if (!v.ok) continue;
+        // documentation hosts (RFC 2606): https://abc:xyz@example.com is an illustration
+        const host = /^@([^/:?#\s"'<>]*)/.exec(text.slice(r[1], r[1] + 260))?.[1].toLowerCase() ?? '';
+        if (/(?:^|\.)example\.(?:com|net|org)$|\.(?:example|test|invalid)$/.test(host)) continue;
         const scheme = m[1].toLowerCase();
         out.push(mkHit(ID, 'PASSWORD', r[0], r[1], 0.96, /^https?$/.test(scheme) ? 'password in a basic-auth URL' : `password in a ${scheme}:// connection URI`, 3, 'uri-cred'));
       }

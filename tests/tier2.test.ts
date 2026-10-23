@@ -89,7 +89,12 @@ describe('national IDs', () => {
     const nino = expandMacros('{{nino:4}}');
     const pesel = expandMacros('{{pesel:5}}');
     const rc = expandMacros('{{rc:6}}');
-    expect(masked(`ids ${ssn} ${nino} ${pesel} ${rc}`)).toEqual([`SSN:${ssn}`, `NINO:${nino}`, `PESEL:${pesel}`, `BIRTH_NUMBER:${rc}`]);
+    expect(masked(`ids ${ssn} ${nino} PESEL ${pesel} ${rc}`)).toEqual([`SSN:${ssn}`, `NINO:${nino}`, `PESEL:${pesel}`, `BIRTH_NUMBER:${rc}`]);
+    // a bare 11-digit number needs a cue (label, JSON key, CSV header) unless the sensitivity is aggressive
+    expect(masked(`ref ${pesel}`)).toEqual([]);
+    expect(masked(`ref ${pesel}`, { sensitivity: 'aggressive' })).toEqual([`PESEL:${pesel}`]);
+    expect(masked(`{"pesel": "${pesel}"}`)).toEqual([`PESEL:${pesel}`]);
+    expect(masked(`ids 1111111111 1234567890 11111111111`, { sensitivity: 'aggressive' })).toEqual([]);
     const badPesel = pesel.slice(0, 10) + String((+pesel[10] + 1) % 10);
     expect(masked(`ids ${badPesel} 000-12-3456 666-12-3456 123-45-678 BG123456A`)).toEqual([]);
     const bareSsn = ssn.replace(/-/g, '');
@@ -98,7 +103,8 @@ describe('national IDs', () => {
   });
   it('packs can be switched off and are listed for the UI', () => {
     const pesel = expandMacros('{{pesel:5}}');
-    expect(masked(`x ${pesel}`, { options: { idPacksOff: ['pl-pesel'] } })).toEqual([]);
+    expect(masked(`PESEL: ${pesel}`)).toEqual([`PESEL:${pesel}`]);
+    expect(masked(`PESEL: ${pesel}`, { options: { idPacksOff: ['pl-pesel'] } })).toEqual([]);
     expect(ID_PACK_META.map((p) => p.id).sort()).toEqual(ID_PACKS.map((p) => p.id).sort());
   });
   it('keeps numbers numeric in JSON', () => {

@@ -28,6 +28,18 @@ describe('corpus', () => {
     });
   }
 
+  for (const f of fixtures.filter((x) => x.fileName)) {
+    it(`${f.id}: pasted without a file name, the guard passes and the round trip holds`, () => {
+      const settings = fixtureSettings(f);
+      const mapping = new Mapping();
+      const a = analyze(f.text, settings, { format: 'auto' });
+      const m = mask(a.doc, a.hits, mapping, settings);
+      expect(m.guard.ok).toBe(true);
+      expect(m.skipped.length).toBe(0);
+      expect(restoreText(m.output, mapping).output).toBe(f.text);
+    });
+  }
+
   it('traps fixture produces no hits', () => {
     const f = fixtures.find((x) => x.id === 'd-traps')!;
     const a = analyze(f.text, fixtureSettings(f), { format: 'prose' });

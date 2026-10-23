@@ -46,12 +46,20 @@ describe('placeholders', () => {
   });
   it('same value → same placeholder, different values never collide, input tokens are skipped', () => {
     const m = new Mapping();
-    const a = run('password=hunter22x\ntoken=abcdEFGH1234ijkl\nPASSWORD_1 is already in the text\n', {}, {}, m);
+    const a = run('password=hunter22x\ntoken=abcdEFGH1234ijkl\nPASSWORD_1 is already in the text\n', {}, { format: 'prose' }, m);
     expect(a.output).toContain('password=[PASSWORD_2]');
     const b = run('password=hunter22x', {}, {}, m);
     expect(b.output).toBe('password=[PASSWORD_2]');
     const c = run('password=another99pw', {}, {}, m);
     expect(c.output).toBe('password=[PASSWORD_3]');
+  });
+  it('scans plain lines pasted along with a config file', () => {
+    const t = 'DB_PASSWORD=hunter22x\nAPI_URL=https://api.example.org\nask bob@acme.io for the token\n';
+    const r = run(t);
+    expect(r.doc.format).toBe('env');
+    expect(r.output).toContain('DB_PASSWORD=PASSWORD_1');
+    expect(r.output).toContain('ask [EMAIL_1] for the token');
+    expect(restoreText(r.output, r.mapping).output).toBe(t);
   });
   it('fakes and redaction are configurable per category', () => {
     const f = run('password=hunter22x', { categories: { secret: { enabled: true, style: 'fake' } } as never });

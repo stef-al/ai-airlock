@@ -1,6 +1,6 @@
 import type { Doc, Format, Lang } from '../types';
 import { segmentCode } from './code';
-import { segmentCsv, sniffDelimiter } from './csv';
+import { isTableSep, segmentCsv, sniffDelimiter } from './csv';
 import { segmentJson } from './json';
 import { segmentKv } from './kv';
 import { segmentMarkdown } from './markdown';
@@ -70,32 +70,83 @@ export function infoFromFileName(name?: string): FormatInfo | null {
 const MONTH_LOG = /^\s*(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\[\d{4}-\d{2}|\[?\d{2}:\d{2}:\d{2}|[A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}|\d{1,2}\/[A-Z][a-z]{2}\/\d{4})/;
 const LEVEL = /\b(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|SEVERE)\b/;
 
+/** Language signals: each distinct signal that occurs adds its weight once. */
+const LANG_SIGNALS: [Lang, RegExp, number][] = [
+  ['bash', /^#!.*\b(?:ba|z|da|k)?sh\b/m, 6],
+  ['bash', /^\s*(?:sudo |apt(?:-get)? |yum |dnf |brew |docker |kubectl |helm |terraform |systemctl |chmod |chown |mkdir |rm -|cd |ls |echo |curl |wget |ssh |scp |git |npm |npx |pnpm |yarn |pip3? |mysql |psql |export \w+=)/m, 2],
+  ['bash', /^\s*(?:if \[\[? |for \w+ in |while \[|case .* in\s*$|fi\s*$|done\s*$|esac\s*$)/m, 3],
+  ['bash', /\$\(|\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}|\s&&\s|\s\|\|\s|\s2>&1/, 1],
+  ['powershell', /\b(?:Write-Host|Write-Output|Write-Error|New-Object|Get-ChildItem|Get-Content|Set-Content|Set-ExecutionPolicy|Invoke-WebRequest|Invoke-Command|Invoke-RestMethod|ConvertTo-SecureString|Import-Module|Get-Item|Set-Item|Start-Process|Out-File|Remove-Item|Test-Path|Get-Process|Get-Service|Select-Object|Where-Object|ForEach-Object|Get-Secret|Get-Credential|New-PSSession)\b/, 4],
+  ['powershell', /\$env:\w+|\$PSScriptRoot|\$ErrorActionPreference|-ErrorAction\b|^\s*param\s*\(|\[Parameter\(|\[string\]\$|\[securestring\]/im, 3],
+  ['python', /^\s*(?:def \w+\(.*\)\s*(?:->\s*[\w[\], ]+)?:|class \w+(?:\(.*\))?:)\s*$/m, 4],
+  ['python', /^\s*(?:import [\w.]+(?: as \w+)?|from [\w.]+ import [\w*, ]+)\s*$/m, 3],
+  ['python', /^\s*(?:elif |if __name__ == |with open\(|try:\s*$|except(?: \w+)?(?: as \w+)?:\s*$)/m, 3],
+  ['python', /\bself\.\w+|\bprint\(|\bNone\b|\bTrue\b|\bFalse\b/, 1],
+  ['js', /^\s*(?:export\s+)?(?:const|let|var)\s+[\w${}[\], ]+\s*=/m, 2],
+  ['js', /\brequire\(['"]|\bmodule\.exports\b|\bexports\.\w+\s*=|\bconsole\.(?:log|error|warn|info)\(|\bdocument\.\w|\bwindow\.\w|\bprocess\.env\b/, 3],
+  ['js', /=>\s*[{(]|\bfunction\s*\*?\s*\w*\s*\(|^\s*import\s*(?:[\w*{][^'"\n]*?\s*from\s*)?['"]|^\s*export\s*(?:default\b|const\b|let\b|var\b|function\b|class\b|async\b|\{|\*)/m, 3],
+  ['js', /\bawait\s+[\w.(]|===|!==|\bthis\.\w+|\bnew\s+(?:Promise|Map|Set|Error|Date)\b|\.then\(|\bundefined\b/, 1],
+  ['ts', /\binterface\s+\w+(?:<[^>{}\n]*>)?\s*(?:extends\s+[^{\n]+)?\{|\btype\s+\w+(?:<[^=\n]*>)?\s*=[^=>]|\bas const\b|\bimplements\s+\w+|\b(?:public|private|protected|readonly)\s+\w+\??\s*:/, 3],
+  ['ts', /\bimport\s+type\b|\bexport\s+(?:declare|type|interface|enum|abstract)\b|^\s*declare\s+(?:const|let|function|class|module|namespace|global|type)\b|\w\??:\s*(?:string|number|boolean|void|unknown|any|never|bigint|undefined)(?:\[\])?\s*[;,)=|]/m, 3],
+  ['java', /^\s*package [\w.]+;\s*$/m, 4],
+  ['java', /\bimport java\.|\bimport javax\.|\bimport org\.springframework|\bSystem\.out\.print|@Override|@Autowired|\bString\[\] args|\bpublic\s+(?:final\s+)?class\s+\w+(?:\s+extends|\s+implements|\s*\{)/, 3],
+  ['csharp', /^\s*using System(?:\.[\w.]+)?;\s*$/m, 4],
+  ['csharp', /\bnamespace\s+[\w.]+\s*(?:\{|;|$)|\bConsole\.Write(?:Line)?\(|\{\s*get;\s*(?:set;\s*)?\}|\bstring\[\] args|\basync Task\b|\[Http(?:Get|Post)|\bnew SqlConnection|\bvar\s+\w+\s*=\s*new\s+\w+/m, 3],
+  ['go', /^package \w+\s*$/m, 4],
+  ['go', /^func (?:\(\w+ \*?\w+\) )?\w+\(|\bfmt\.\w+\(|\b\w+\s*:=\s*|^import \($/m, 3],
+  ['go', /^type \w+ (?:struct|interface) \{|`(?:json|yaml|xml|db|gorm|bson|mapstructure|toml|env):"[^"\n]*"/m, 4],
+  ['php', /<\?php/, 6],
+  ['php', /\$\w+\s*=\s*[^=]|->\w+\(|\barray\(|\becho\s+['"$]|\bfunction\s+\w+\s*\(\$/, 2],
+  ['sql', /^\s*(?:SELECT\b[\s\S]{0,400}?\bFROM\b|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(?:TABLE|USER|LOGIN|DATABASE|INDEX|VIEW|PROCEDURE)|ALTER\s+(?:USER|TABLE|LOGIN)|DROP\s+(?:TABLE|USER|DATABASE)|GRANT\s+\w+|REVOKE\s+\w+)/im, 5],
+];
+
 export function sniffLang(text: string): Lang | null {
-  const score: Record<string, number> = {};
-  const add = (l: string, n = 1) => (score[l] = (score[l] ?? 0) + n);
   const t = text.slice(0, 20000);
-  if (/^#!.*\b(?:ba|z)?sh\b/.test(t)) add('bash', 5);
-  if (/<\?php/.test(t)) add('php', 6);
-  if (/^\s*(?:def |class \w+.*:|import \w+|from \w+ import|elif |if __name__)/m.test(t) && !/[;{]\s*$/m.test(t)) add('python', 4);
-  if (/\bself\.\w+/.test(t)) add('python', 1);
-  if (/\b(?:const|let|var)\s+\w+\s*=|=>|\brequire\(|\bmodule\.exports|\bconsole\.log|\bfunction\s*\w*\(|^\s*import .* from ['"]/m.test(t)) add('js', 3);
-  if (/\binterface\s+\w+\s*\{|:\s*(?:string|number|boolean)\b/.test(t)) add('ts', 2);
-  if (/\bpublic\s+(?:static\s+)?(?:class|void|final)|\bSystem\.out|\bimport java\.|@Override|\bprivate\s+(?:static\s+)?final\b/.test(t)) add('java', 4);
-  if (/\busing System|\bnamespace\s+[\w.]+|\bConsole\.Write|\bvar\s+\w+\s*=\s*new\b|\bpublic\s+(?:async\s+)?(?:Task|string|void|int)\b|\bnew SqlConnection/.test(t)) add('csharp', 4);
-  if (/^package \w+|^func \w*\(|\bfmt\.Print|:= /m.test(t)) add('go', 3);
-  if (/\$\w+\s*=\s*['"$]|\becho\s+\$|->\w+\(|\barray\(/.test(t)) add('php', 1);
-  if (/^\s*(?:SELECT\b[\s\S]*?\bFROM\b|INSERT\s+INTO|UPDATE\s+\w+\s+SET|CREATE\s+(?:TABLE|USER|LOGIN|DATABASE)|ALTER\s+(?:USER|TABLE|LOGIN)|DELETE\s+FROM|GRANT\b)/im.test(t)) add('sql', 5);
-  if (/\b(?:Write-Host|Write-Output|New-Object|Get-ChildItem|Get-Content|Set-Content|Set-ExecutionPolicy|Invoke-WebRequest|Invoke-Command|Invoke-RestMethod|ConvertTo-SecureString|Import-Module|Get-Item|Set-Item|Start-Process|Out-File|Remove-Item|Test-Path|Get-Process|Get-Service|Select-Object|Where-Object|ForEach-Object|Get-Secret|Connect-\w+|New-PSSession)\b|\$env:\w+/.test(t)) add('powershell', 5);
-  if (/^\s*(?:export \w+=|sudo |curl |wget |echo |apt(?:-get)? |docker |kubectl |mysql |psql |ssh |\$ )/m.test(t) || /\$\(|\bfi$/m.test(t)) add('bash', 3);
-  let best: string | null = null;
+  const score: Partial<Record<Lang, number>> = {};
+  for (const [lang, re, w] of LANG_SIGNALS) if (re.test(t)) score[lang] = (score[lang] ?? 0) + w;
+  let best: Lang | null = null;
   let bs = 0;
-  for (const [l, s] of Object.entries(score)) if (s > bs) {
-    bs = s;
-    best = l;
+  for (const [l, v] of Object.entries(score) as [Lang, number][]) {
+    if (v > bs) {
+      bs = v;
+      best = l;
+    }
   }
-  if (best === 'js' && (score.ts ?? 0) >= 2) best = 'ts';
-  return bs >= 3 ? (best as Lang) : null;
+  if ((best === 'js' || best === 'ts') && (score.ts ?? 0) >= 3) best = 'ts';
+  return bs >= 3 ? best : null;
 }
+
+/** Lines shaped like code in most languages: statement ends, braces, comments, keywords, calls. */
+const CODE_SHAPE = new RegExp(
+  [
+    String.raw`[;{}([,]\s*$|^\s*[}\])]`,
+    String.raw`^\s*(?:\/\/|\/\*|\*\/|\*(?:\s|$)|#!)`,
+    String.raw`=>|:=|\w\([^()]*\)\s*[;{:]?\s*$`,
+    String.raw`^\s*(?:import|export|from|const|let|var|function|class|interface|type|enum|return|if|else|elif|for|foreach|while|do|switch|case|break|continue|try|catch|except|finally|throw|raise|def|async|await|public|private|protected|internal|static|package|using|namespace|func|defer|echo|fi|done|then|esac|local|param|yield|with|struct|declare|abstract|override|readonly|module|new|set|unset|sudo|cd|mkdir|rm|cp|mv|chmod|chown|apt-get|apt|yum|dnf|brew|pip3?|npm|npx|yarn|git|curl|wget|docker|kubectl|helm|SELECT|INSERT|UPDATE|DELETE|CREATE|ALTER|DROP|GRANT)\b`,
+    String.raw`^\s*@[A-Za-z]\w*(?:\(|\s*$)`,
+  ].join('|'),
+);
+/** prose sentences: words separated by single spaces and ending in a full stop */
+const SENTENCE = /^\s*(?:[-*>]\s+)?[A-Z][a-z]+(?: [\w,'’()-]+){4,}[.!?:]\s*$/;
+
+function codeShapeRatio(lines: string[]): number {
+  let code = 0;
+  let n = 0;
+  for (const l of lines) {
+    if (!l.trim()) continue;
+    n++;
+    if (CODE_SHAPE.test(l) && !SENTENCE.test(l)) code++;
+  }
+  return n ? code / n : 0;
+}
+
+const SHEBANG: [RegExp, Lang][] = [
+  [/^#!.*\b(?:ba|z|da|k)?sh\b/, 'bash'],
+  [/^#!.*\bpython/, 'python'],
+  [/^#!.*\b(?:node|deno|bun)\b/, 'js'],
+  [/^#!.*\bpwsh\b/, 'powershell'],
+  [/^#!.*\bphp\b/, 'php'],
+];
 
 function jsonErrorRatio(text: string): number {
   let errs = 0;
@@ -107,47 +158,95 @@ function jsonErrorRatio(text: string): number {
   return errs / Math.max(1, text.length / 80);
 }
 
+const EMAIL_HDR = /^(?:From|To|Cc|Bcc|Subject|Date|Sent|Reply-To|Message-ID|Von|An|Betreff|Gesendet|Datum|De|À|Objet|Envoyé|Para|Asunto|Enviado|Oggetto|Inviato|Od|Do|Temat|Wysłano|Komu|Předmět|Odesláno|Kopie|CC):[ \t]/;
+const DIFF_LINE = /^(?:diff --git |index [0-9a-f]{6,}\.\.[0-9a-f]{6,}|--- (?:a\/|\/dev\/null)|\+\+\+ (?:b\/|\/dev\/null)|@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@)/;
+const COMMENT_LINE = /^\s*(?:#|;|\/\/|!)/;
+const ENV_LINE = /^\s*(?:export\s+)?[A-Za-z_][\w.-]*\s*=(?!=)/;
+const YAML_KEY_LINE = /^\s*(?:-\s+)?(?:"[^"]*"|'[^']*'|[\w./-][\w./ -]{0,60}?)\s*:(?:\s|$)/;
+const YAML_ITEM = /^\s*-\s+\S|^\s*-\s*$|^---\s*$|^\.\.\.\s*$/;
+const SECTION_LINE = /^\s*\[[^\]\n]+\]\s*$/;
+const CODE_LINE = /[;{,]\s*$|^\s*\}|=\s*(?:new\s+)?[\w.$]+\(|^\s*[\w.$]+\(.*\)\s*;?\s*$|\b(?:function|def|class|return|import|public|private|static|void)\b|=>|\bfor\s*\(|\bif\s*\(/;
+const DOCKER_LINE = /^(?:FROM|RUN|ENV|COPY|ADD|WORKDIR|EXPOSE|CMD|ENTRYPOINT|ARG|USER|LABEL|VOLUME|HEALTHCHECK|SHELL|STOPSIGNAL|ONBUILD)\s/;
+
+function markdownScore(lines: string[]): number {
+  let headings = 0;
+  let bullets = 0;
+  let links = 0;
+  let inline = 0;
+  for (const l of lines) {
+    if (/^#{1,6}\s+\S/.test(l)) headings++;
+    if (/^\s*(?:[-*+]|\d{1,3}[.)])\s+\S/.test(l) && !/^\s*-\s+[\w"'./-]+:(?:\s|$)/.test(l)) bullets++;
+    links += (l.match(/\[[^\]\n]+\]\([^)\s]+\)/g) ?? []).length;
+    if (/\*\*[^*\n]+\*\*|`[^`\n]+`|^>\s/.test(l)) inline++;
+  }
+  return Math.min(headings, 3) * 2 + Math.min(bullets, 3) + Math.min(links, 3) + Math.min(inline, 2);
+}
+
+function hasMarkdownTable(lines: string[]): boolean {
+  for (let i = 0; i + 1 < lines.length; i++) if (lines[i].includes('|') && isTableSep(lines[i + 1])) return true;
+  return false;
+}
+
 export function detectFormat(text: string, fileName?: string): FormatInfo {
   const byName = infoFromFileName(fileName);
   if (byName && byName.format !== 'prose') return byName;
   const sample = text.slice(0, 60000);
   const trimmed = sample.trimStart();
-  const lines = sample.split('\n');
+  const lines = sample.split('\n').map((l) => l.replace(/\r$/, ''));
   const nonEmpty = lines.filter((l) => l.trim());
-  const frac = (re: RegExp) => (nonEmpty.length ? nonEmpty.filter((l) => re.test(l)).length / nonEmpty.length : 0);
+  const count = (xs: string[], re: RegExp) => xs.filter((l) => re.test(l)).length;
+  const head = nonEmpty.slice(0, 15);
 
-  if (/^```|^~~~/m.test(sample)) return { format: 'markdown' };
+  for (const [re, l] of SHEBANG) if (re.test(trimmed)) return { format: 'code', lang: l };
+  if (/^[ \t]{0,3}(?:```|~~~)/m.test(sample)) return { format: 'markdown' };
   if (/^\s*(?:(?:GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS) \S+ HTTP\/\d|HTTP\/\d(?:\.\d)? \d{3})/.test(sample)) return { format: 'log' };
+  // patches and mails are text with embedded fragments: scan them as prose
+  if (count(head, DIFF_LINE) >= 2) return { format: 'prose' };
+  if (count(head, EMAIL_HDR) >= 2) return { format: 'prose' };
+
   if ((trimmed.startsWith('{') || trimmed.startsWith('[')) && text.trim().length > 1 && jsonErrorRatio(sample) < 0.5) {
-    if (/^[\[{]\s*(?:[\]}"\d\[{-]|true|false|null)/.test(trimmed)) return { format: 'json' };
+    if (/^[[{]\s*(?:[\]}"\d[{-]|true|false|null)/.test(trimmed)) return { format: 'json' };
   }
-  if (frac(/^\s*"[^"]+"\s*:\s*\S/) > 0.6) return { format: 'json' };
-  if (/^\s*<\?xml|^\s*<[A-Za-z][\w:.-]*[\s>/]/.test(trimmed) && /<\/[A-Za-z][\w:.-]*>|\/>/.test(sample) && frac(/^\s*</) > 0.5) return { format: 'xml' };
-  if (nonEmpty.length >= 3 && frac(/^\s*\|.*\|\s*$/) > 0.6 && lines.some((l) => /^\s*\|?\s*:?-{2,}/.test(l))) return { format: 'markdown' };
-  if (nonEmpty.length >= 2 && frac(/^\s{0,3}(?:#{1,6}\s|[-*]\s+\S)/) > 0.4 && !/[;{]\s*$/m.test(sample)) return { format: 'markdown' };
-  const d = sniffDelimiter(sample);
-  if (d && nonEmpty.length >= 3 && !(d === '|' && frac(/^\s*\|/) > 0.5)) {
-    const hdrOk = !/\s{2,}/.test(nonEmpty[0]) || d === '\t';
-    if (hdrOk && !/[{};]$/m.test(sample.slice(0, 500)) && !(d === ';' && frac(/;\s*$/) > 0.3)) return { format: 'csv' };
+  if (nonEmpty.length >= 2 && nonEmpty.every((l) => /^\s*[[{].*[\]}]\s*,?\s*$/.test(l))) return { format: 'json' };
+  if (count(nonEmpty, /^\s*"[^"]+"\s*:\s*\S/) / Math.max(1, nonEmpty.length) > 0.6) return { format: 'json' };
+  if (/^(?:<\?xml|<!DOCTYPE\s|<!--|<[A-Za-z][\w:.-]*[\s>/])/i.test(trimmed) && /<\/[A-Za-z][\w:.-]*>|\/>/.test(sample)) {
+    if (/^(?:<\?xml|<!DOCTYPE\s|<html[\s>])/i.test(trimmed) || count(nonEmpty, /^\s*</) / nonEmpty.length > 0.5) return { format: 'xml' };
   }
-  const envRe = /^\s*(?:export\s+)?[A-Za-z_][A-Za-z0-9_.]*=/;
-  const cfgLines = nonEmpty.filter((l) => !/^\s*[#;]/.test(l));
-  const envFrac = cfgLines.length ? cfgLines.filter((l) => envRe.test(l)).length / cfgLines.length : 0;
-  const hasSection = lines.some((l) => /^\s*\[[^\]\n]+\]\s*$/.test(l));
-  if (hasSection && envFrac > 0.4 && !/[;{]\s*$/m.test(sample.slice(0, 400))) return { format: 'ini' };
-  const yamlFrac = cfgLines.length ? cfgLines.filter((l) => /^\s*(?:-\s+)?[\w."'/-][^:]*:(?:\s|$)|^\s*-\s+\S/.test(l)).length / cfgLines.length : 0;
-  const codeSignals = /[;{}]\s*$/m.test(sample) || /\b(?:function|def|class|import|return)\b/.test(sample);
-  if (/^---\s*$/m.test(sample.slice(0, 200)) && yamlFrac > 0.5) return { format: 'yaml' };
-  if (yamlFrac > 0.7 && cfgLines.length >= 2 && !codeSignals && envFrac < 0.5) return { format: 'yaml' };
-  if (envFrac > 0.7 && cfgLines.length >= 2 && !codeSignals) {
-    const upper = cfgLines.filter((l) => /^\s*(?:export\s+)?[A-Z][A-Z0-9_]*=/.test(l)).length / cfgLines.length;
-    return { format: upper > 0.5 ? 'env' : 'properties' };
+
+  // configuration: judged on the lines that are not comments (config files are full of '# ...' notes)
+  const cfg = nonEmpty.filter((l) => !COMMENT_LINE.test(l));
+  if (cfg.length >= 2) {
+    const n = cfg.length;
+    const env = count(cfg, ENV_LINE);
+    const keys = count(cfg, YAML_KEY_LINE);
+    const items = count(cfg, YAML_ITEM);
+    const sections = count(cfg, SECTION_LINE);
+    const code = count(cfg, CODE_LINE);
+    const codeFrac = code / n;
+    if (sections >= 1 && (env + keys + sections) / n >= 0.7 && codeFrac < 0.2) return { format: 'ini' };
+    if (env / n >= 0.6 && codeFrac < 0.15 && sections === 0) {
+      const upper = count(cfg, /^\s*(?:export\s+)?[A-Z][A-Z0-9_]*\s*=/) / n;
+      return { format: upper > 0.5 ? 'env' : 'properties' };
+    }
+    if ((keys + items) / n >= 0.6 && keys >= Math.max(1, 0.3 * n) && codeFrac < 0.15 && env < keys) return { format: 'yaml' };
   }
-  if (frac(MONTH_LOG) > 0.3 || frac(LEVEL) > 0.4) return { format: 'log' };
+
+  // code: a recognised language and mostly code-shaped lines (comments with '# ' or ' * ' are not headings or bullets)
   const lang = sniffLang(sample);
+  const shape = codeShapeRatio(lines.slice(0, 400));
+  if (lang && shape >= 0.55) return { format: 'code', lang };
+  if (hasMarkdownTable(lines) || markdownScore(lines) >= 4) return { format: 'markdown' };
+  const d = sniffDelimiter(sample);
+  if (d && nonEmpty.length >= 3 && !(d === '|' && count(nonEmpty, /^\s*\|/) / nonEmpty.length > 0.5)) {
+    const hdrOk = !/\s{2,}/.test(nonEmpty[0]) || d === '\t';
+    if (hdrOk && !/[{};]$/m.test(sample.slice(0, 500)) && !(d === ';' && count(nonEmpty, /;\s*$/) / nonEmpty.length > 0.3)) return { format: 'csv' };
+  }
+  if (count(nonEmpty, DOCKER_LINE) >= 2 && /^(?:FROM|ARG)\s/m.test(sample)) return { format: 'code', lang: 'bash' };
+  if (count(nonEmpty, MONTH_LOG) / Math.max(1, nonEmpty.length) > 0.3 || count(nonEmpty, LEVEL) / Math.max(1, nonEmpty.length) > 0.4) return { format: 'log' };
   // a chat message that merely mentions a command is prose, not a script
-  const codeLike = nonEmpty.filter((l) => /[{};=$|&<>]|\s-{1,2}[A-Za-z]|^\s*(?:#|\/\/|--)|\w\(/.test(l)).length / Math.max(1, nonEmpty.length);
+  const codeLike = count(nonEmpty, /[{};=$|&<>]|\s-{1,2}[A-Za-z]|^\s*(?:#|\/\/|--)|\w\(/) / Math.max(1, nonEmpty.length);
   if (lang && codeLike >= 0.4) return { format: 'code', lang };
+  if (markdownScore(lines) >= 3) return { format: 'markdown' };
   return { format: 'prose' };
 }
 
@@ -209,6 +308,14 @@ export function buildDoc(text: string, opts: BuildOptions = {}): Doc {
   let part: Part;
   try {
     part = segmentBy(text, format, lang);
+    // a guessed structure that does not parse is better treated as text than as a broken document
+    const sniffed = !opts.format || opts.format === 'auto';
+    const named = !!infoFromFileName(opts.fileName) && infoFromFileName(opts.fileName)!.format !== 'prose';
+    if (sniffed && !named && ((format === 'yaml' && part.errors > 0) || (format === 'json' && part.errors > 2) || (format === 'xml' && part.errors > 2))) {
+      part = { segments: proseSegments(text.length), pairs: [], columns: [], errors: 0 };
+      format = 'prose';
+      lang = undefined;
+    }
   } catch {
     part = { segments: proseSegments(text.length), pairs: [], columns: [], errors: 1 };
     format = 'prose';

@@ -9,7 +9,11 @@ import { mkHit } from './helpers';
 
 const OCT = '(?:25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)';
 const IPV4 = new RegExp(`(?<![\\w.])(?<!\\d-)(?:${OCT}\\.){3}${OCT}(?![\\w]|\\.\\d)(?!-\\d)`, 'g');
-const VERSION_BEFORE = /(?:\bv|\bversion|\bver\.?|\brelease|\bbuild|\brev(?:ision)?|\bagent|\blibrary|\bpackage|\bsdk|@)\s*[:=]?\s*$/i;
+/** Dotted quads after these words are versions or section numbers, not addresses ("section 24.5.1.1", "version 4.17.21.3"). */
+const VERSION_WORD =
+  /(?:\bv\d*|\bversions?|\bver\.?|\brelease|\bbuild|\brev(?:ision)?|\blibrary|\bpackage|\bsdk|\bsection|\bchapter|\bclause|\barticle|\bart\.|\bpara(?:graph)?|\bfigure|\bfig\.|§|\brfc|\bkernel|\bfirmware)["']?\s*[:=]?\s*["'(]?\s*$/i;
+/** ...and after these keys ("v8: '14.3.127.18'", "chrome": "120.0.6099.71"), which are also ordinary words. */
+const VERSION_KEY = /\b(?:node|npm|chrome|chromium|firefox|safari|edge|opera|android|ios|fw|browser|engine|os)["']?\s*[:=]\s*["']?\s*$/i;
 
 type IpClass = 'public' | 'private' | 'localhost' | 'skip';
 
@@ -78,7 +82,10 @@ export const ipDetector: Detector = {
       const cls = classify4(m[0]);
       if (cls === 'skip' || (cls === 'private' && !priv) || (cls === 'localhost' && !local)) continue;
       if (/\b0\d/.test(m[0].replace(/\./g, ' '))) continue; // leading zeros: ambiguous
-      if (VERSION_BEFORE.test(t.slice(Math.max(0, m.index - 14), m.index))) continue;
+      const before = t.slice(Math.max(0, m.index - 16), m.index);
+      if (VERSION_WORD.test(before) || VERSION_KEY.test(before)) continue;
+      // semver-style suffixes: 14.3.127.18-node.10, 1.2.3.4+build
+      if (/^[-+][A-Za-z]/.test(t.slice(m.index + m[0].length, m.index + m[0].length + 2))) continue;
       out.push(mkHit('network.ip', 'IP', m.index, m.index + m[0].length, cls === 'public' ? 0.9 : 0.85, `${cls === 'private' ? 'private' : cls === 'localhost' ? 'loopback' : 'public'} IPv4 address`, 3, 'ipv4'));
     }
     if (t.includes('::') || /[0-9A-Fa-f]:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}:[0-9A-Fa-f]{1,4}/.test(t)) {

@@ -23,6 +23,8 @@ export const usernameDetector: Detector = {
       for (const m of matchAll(re, doc.text)) {
         const g = groupSpan(m, 1)!;
         const name = m[1].replace(/[.,;]+$/, '');
+        // /home/example.js is a file, not a user directory
+        if (/\.[A-Za-z0-9]{1,5}$/.test(name) && !/^[/\\]/.test(doc.text.slice(g[1], g[1] + 1))) continue;
         if (GENERIC_USERS.has(name.toLowerCase()) || /^[<{$%[]/.test(name) || /^\.+$/.test(name)) continue;
         out.push(mkHit('paths.username', 'USERNAME', g[0], g[0] + name.length, 0.85, 'user name in a home-directory path', 2, 'path-user'));
       }

@@ -69,7 +69,7 @@ export const phoneDetector: Detector = {
     while ((m = PHONE_CAND.exec(text))) {
       if (++n > 100000) break;
       let cand = m[0];
-      let s = m.index;
+      const s = m.index;
       // trim trailing separators
       const trimmed = cand.replace(/[\s.()-]+$/, '');
       cand = trimmed;
@@ -77,6 +77,10 @@ export const phoneDetector: Detector = {
       if (digits.length < 7 || digits.length > 15) continue;
       if (DATE_LIKE.test(cand) || IP_LIKE.test(cand) || DATE_START.test(cand)) continue;
       if (/^:\d/.test(text.slice(s + m[0].length, s + m[0].length + 2)) || text[s - 1] === ':') continue;
+      // hex dumps: <Buffer ab 90 78 56 34 12>, "de ad 12 34 56 78 9a"
+      const hexPrev = /(?:^|\s)([0-9A-Fa-f]{2})\s$/.exec(text.slice(Math.max(0, s - 4), s));
+      const hexNext = /^\s([0-9A-Fa-f]{2})(?=\s|>|$)/.exec(text.slice(s + cand.length, s + cand.length + 4));
+      if ((hexPrev && /[A-Fa-f]/.test(hexPrev[1])) || (hexNext && /[A-Fa-f]/.test(hexNext[1])) || /<Buffer|0x[0-9A-Fa-f]*\s*$/.test(text.slice(Math.max(0, s - 12), s))) continue;
       const intl = /^(?:\+|00)/.test(cand);
       const hasSep = /[\s().-]/.test(cand);
       // short dotted groups are almost always versions / IPs / decimals

@@ -13,7 +13,12 @@ const VERSION = /^v?\d+(?:\.\d+){1,4}(?:[-+][\w.]+)?$/i;
 const CSS_COLOR = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const IDENT_LIKE = /^(?:[a-z]+(?:[A-Z][a-z0-9]+)+|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|[a-z0-9]+(?:[_-][a-z0-9]+)+|[A-Z0-9]+(?:_[A-Z0-9]+)+)$/;
 const FILEISH = /\.[A-Za-z0-9]{1,5}$/;
-const CUE_NEAR = /(?:pass(?:word|wd|phrase)?|pwd|secret|token|api[-_ ]?key|apikey|credential|private[-_ ]?key|auth|bearer|login|passwort|kennwort|key)\s*[:=]?/i;
+const WORD_RE = /[A-Za-z\u00C0-\u024F][\w\u00C0-\u024F-]{1,40}/g;
+/** "Key", "signingKey", "aes_key": a value named like a key (but not a public key or a key id). */
+const KEY_NAME = /(?:^|[_.-])key$|[a-z0-9]Key$|^key$/i;
+const NOT_KEY_NAME = /pub(?:lic)?[_.-]?key$|publicKey$|key[_.-]?id$|^(?:primary|foreign|sort|partition|hash|range|cache|object|map|dict|row|column|i18n|translation|react)[_.-]?key$/i;
+/** base64 lengths of md5 / sha1 / sha256 / sha384 / sha512 digests */
+const B64_DIGEST_LEN = new Set([22, 24, 27, 28, 43, 44, 64, 86, 88]);
 
 const SHAPES: { re: RegExp; label: string }[] = [
   { re: /(?<![A-Za-z0-9])[A-Z][a-z]{3,10}[-_.]?(?:19|20)\d{2}[!@#$%^&*?+.]{1,3}(?![A-Za-z0-9])/g, label: 'word + year + symbol' },
@@ -75,7 +80,19 @@ export const secretsEntropy: Detector = {
     const out: Hit[] = [];
     const an = analyzerFor(ctx.settings);
     const uris = ex.dataUri ? dataUriRanges(text) : [];
-    const inUri = (p: number) => uris.some(([a, b]) => p >= a && p < b);
+    let ui = 0;
+    const inUri = (p: number) => {
+      while (ui < uris.length && uris[ui][1] <= p) ui++;
+      return ui < uris.length && uris[ui][0] <= p;
+    };
+    /** a secret-like word shortly before the candidate (uses the multilingual cue list) */
+    const cueBefore = (before: string) => {
+      for (const w of before.match(WORD_RE) ?? []) {
+        const ki = an.analyze(w);
+        if (ki && !ki.negated) return true;
+      }
+      return false;
+    };
 
     // --- high-entropy tokens ------------------------------------------------------------------
     CAND.lastIndex = 0;
@@ -97,12 +114,15 @@ export const secretsEntropy: Detector = {
       if (why) continue;
       const cs = charset(tok);
       if (cs === 'other') continue;
-      const cueNear = CUE_NEAR.test(before);
+      // base64-encoded digests next to a hash cue (pin-sha256="…", integrity, checksums)
+      if (ex.hashes && hashCue && cs === 'b64' && (B64_DIGEST_LEN.has(tok.length) || B64_DIGEST_LEN.has(tok.replace(/=+$/, '').length))) continue;
+      const cueNear = cueBefore(before);
       const classes = charClasses(tok);
       const ent = shannon(tok);
       const keyed = (() => {
         const km = /([\w.-]{1,40})["']?\s*[:=]\s*["']?$/.exec(before);
         if (!km) return false;
+        if (KEY_NAME.test(km[1]) && !NOT_KEY_NAME.test(km[1])) return true;
         const ki = an.analyze(km[1]);
         return !!ki && !ki.negated;
       })();
@@ -139,7 +159,7 @@ export const secretsEntropy: Detector = {
         const s = m.index;
         const [ls] = lineBounds(text, s);
         const before = text.slice(Math.max(ls, s - 80), s);
-        const cue = CUE_NEAR.test(before) || /(?:pass|pw|pwd|login|passwort|secret|credentials?)\W{0,20}$/i.test(before);
+        const cue = cueBefore(before) || /(?:\bpass|\bpw|\bpwd|\blogin|passwort|secret|credentials?)\W{0,20}$/i.test(before);
         const classes = charClasses(tok);
         if (classes < 3) continue;
         if (!cue && (rank < 2 || !/[!@#$%^&*?+]/.test(tok))) continue;

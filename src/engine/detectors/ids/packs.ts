@@ -1,4 +1,4 @@
-import { digitsOf, validYmd, type IdPack } from './types';
+import { digitsOf, dummyDigits, validYmd, type IdPack } from './types';
 
 const KNOWN_BAD_SSN = new Set(['078051120', '219099999', '457555462']);
 
@@ -7,9 +7,11 @@ export const usSsn: IdPack = {
   label: 'US Social Security number',
   type: 'SSN',
   re: /(?<![\d-])(\d{3})([- ])(\d{2})\2(\d{4})(?![\d-])|(?<!\d)(\d{9})(?!\d)/g,
-  cue: /(?:ssn|social security(?: number)?|soc\.? sec\.?|ss#)[\s:#=.-]{0,6}$/i,
+  cue: /(?:ssn|social security(?: number)?|soc\.? sec\.?|ss#)["'\s:#=.-]{0,8}$/i,
+  keyCue: /^(?:ssn|social[_ -]?security(?:[_ -]?(?:number|no))?|soc[_ -]?sec)$/i,
   validate(m, cue) {
     const d = digitsOf(m[0]);
+    if (dummyDigits(d)) return null;
     const formatted = m[5] === undefined;
     if (!formatted && !cue) return null;
     const area = +d.slice(0, 3);
@@ -24,7 +26,8 @@ export const ukNino: IdPack = {
   label: 'UK National Insurance number',
   type: 'NINO',
   re: /(?<![A-Za-z0-9])([A-CEGHJ-PR-TW-Z][A-CEGHJ-NPR-TW-Z])([ ]?)(\d{2})\2(\d{2})\2(\d{2})\2([A-D])(?![A-Za-z0-9])/g,
-  cue: /(?:national insurance(?: number)?|nino|ni number|ni no\.?)[\s:#=.-]{0,6}$/i,
+  cue: /(?:national insurance(?: number)?|nino|ni number|ni no\.?)["'\s:#=.-]{0,8}$/i,
+  keyCue: /^(?:nino|ni[_ -]?(?:number|no)|national[_ -]?insurance(?:[_ -]?(?:number|no))?)$/i,
   validate(m, cue) {
     if (NINO_BAD.has(m[1])) return null;
     return { conf: cue || m[2] ? 0.92 : 0.82, reason: 'UK National Insurance number format' };
@@ -45,10 +48,12 @@ export const czSkBirthNumber: IdPack = {
   id: 'cz-sk-birth-number',
   label: 'Czech / Slovak birth number (rodné číslo)',
   type: 'BIRTH_NUMBER',
-  re: /(?<![\d/])(\d{2})(\d{2})(\d{2})(\/?)(\d{3,4})(?![\d/])/g,
-  cue: /(?:rodn[ée] [čc][ií]slo|r\.?[čc]\.?|birth number|rc)[\s:#=.-]{0,6}$/i,
+  re: /(?<![\d/+.])(\d{2})(\d{2})(\d{2})(\/?)(\d{3,4})(?![\d/])/g,
+  cue: /(?:rodn[ée] [čc][ií]slo|r\.?[čc]\.?|birth number|rc)["'\s:#=.-]{0,8}$/i,
+  keyCue: /^(?:rc|r[čc]|rodne[_ -]?cislo|rodné[_ -]?číslo|birth[_ -]?number|personal[_ -]?number)$/i,
   validate(m, cue) {
     const tail = m[5];
+    if (dummyDigits(m[1] + m[2] + m[3] + tail)) return null;
     const digits = 6 + tail.length;
     if (!czDateOk(+m[1], +m[2], +m[3], digits)) return null;
     if (digits === 9) {
@@ -61,7 +66,7 @@ export const czSkBirthNumber: IdPack = {
     const mod = n % 11;
     const ok = mod === last || (mod === 10 && last === 0);
     if (!ok) return null;
-    return { conf: m[4] || cue ? 0.94 : 0.8, reason: 'Czech/Slovak birth number (valid date and mod-11 checksum)' };
+    return { conf: m[4] || cue ? 0.94 : 0.7, reason: 'Czech/Slovak birth number (valid date and mod-11 checksum)', needsCue: !m[4] && !cue };
   },
 };
 
@@ -69,10 +74,12 @@ export const plPesel: IdPack = {
   id: 'pl-pesel',
   label: 'Polish PESEL',
   type: 'PESEL',
-  re: /(?<![\d.])(\d{11})(?![\d.])/g,
-  cue: /(?:pesel|nr pesel|numer pesel)[\s:#=.-]{0,6}$/i,
+  re: /(?<![\d.+])(\d{11})(?![\d.])/g,
+  cue: /(?:pesel|nr pesel|numer pesel)["'\s:#=.-]{0,8}$/i,
+  keyCue: /^(?:pesel|nr[_ -]?pesel|numer[_ -]?pesel)$/i,
   validate(m, cue) {
     const d = m[1];
+    if (dummyDigits(d)) return null;
     const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
     const sum = w.reduce((a, x, i) => a + x * +d[i], 0);
     if ((10 - (sum % 10)) % 10 !== +d[10]) return null;
@@ -92,6 +99,6 @@ export const plPesel: IdPack = {
       month -= 20;
     }
     if (!validYmd(year, month, +d.slice(4, 6)) || year > new Date().getFullYear()) return null;
-    return { conf: cue ? 0.96 : 0.82, reason: 'Polish PESEL (valid date and checksum)' };
+    return { conf: cue ? 0.96 : 0.7, reason: 'Polish PESEL (valid date and checksum)', needsCue: !cue };
   },
 };

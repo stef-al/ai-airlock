@@ -61,6 +61,9 @@ const AFTER_ONLY = new Set(
 
 const VERBS = new Set('get is has check validate verify hash compare generate encode decode encrypt decrypt parse load read fetch find show hide toggle can should render format mask unmask display print log prompt ask'.split(' '));
 
+/** Words allowed after an ambiguous cue: PIN_CODE, pass_word, pw_new. */
+const CUE_TAIL = new Set('code number no nr num value val word phrase plain plaintext new old confirm confirmation again repeat current'.split(' '));
+
 // words that must never count as the cue even though they contain it
 const NOT_CUE = new Set(['secretary', 'secretariat', 'secretive', 'secretion', 'secretly', 'tokenizer', 'tokenize', 'tokenization', 'tokenizers', 'compass', 'bypass', 'passage', 'passenger', 'passive', 'passion', 'passport', 'passing', 'password' + 'less']);
 
@@ -160,7 +163,13 @@ export class KeyAnalyzer {
       }
     }
     if (!best) return null;
-    const b = best as { type: string; strength: Strength; kw: string; idx: number };
+    const b = best as { type: string; strength: Strength; kw: string; idx: number; end?: number };
+    // short / ambiguous cues only count as the last word of a name: db_pw yes, x-pw-serviceworker no
+    if (b.strength !== 'strong') {
+      const kwLen = nameTokens(b.kw).length;
+      const rest = toks.slice(b.idx + kwLen).filter((t) => !/^\d+$/.test(t) && !CUE_TAIL.has(t));
+      if (rest.length && !rest.every((t) => this.quals.has(t))) return null;
+    }
     // verbs in front make it a function / predicate name: getPassword, isPasswordValid, hashPassword
     if (b.idx > 0 && VERBS.has(toks[0])) return { type: b.type, strength: b.strength, keyword: b.kw, negated: true, qualifier: toks[0] };
     for (let i = 0; i < toks.length; i++) {
@@ -207,7 +216,7 @@ const PLACEHOLDER_RES: RegExp[] = [
   /^(?:your|my|the|enter|insert|put|replace|some|a)[\s_-]*(?:\w+[\s_-]+){0,2}(?:password|passwd|pass|pwd|secret|token|key|api[\s_-]?key|credentials?|value)(?:[\s_-]*here)?$/i,
   /^(?:change[\s_-]?me[\s_-]?(?:please|now)?|replace[\s_-]?me|redacted|removed|hidden|masked|censored|placeholder|todo|tbd|fixme|dummy|example|sample|none|null|nil|n\/a|na|unset|undefined|empty|default|required|optional)$/i,
   /^(?:true|false|yes|no|on|off|y|n|0|1)$/i,
-  /^(?:string|str|text|int|integer|bool|boolean|number|float|double|object|array|any|password|secret|token|hidden)$/i,
+  /^(?:string|str|text|int|integer|bool|boolean|number|float|double|object|array|any|password|secret|token|hidden|value|values|val)$/i,
   /^\[?[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*_\d+\]?$/, // already a placeholder of ours
   /^[\w.+-]*user\d+@example\.(?:com|org|net)$/i,
   /^\.\.\.$/,
@@ -219,6 +228,36 @@ export function isReference(v: string): boolean {
 
 export function isPlaceholderValue(v: string): boolean {
   return PLACEHOLDER_RES.some((r) => r.test(v));
+}
+
+/** Enumerations and mode words that configs put next to secret-like names (secrets: inherit, credentials: include). */
+const ENUM_WORDS = new Set(
+  ('inherit required optional none auto default enabled disabled enable disable manual env environment file files vault kms aws gcp azure ' +
+    'local internal external plain plaintext basic bearer digest oauth oauth2 jwt saml ldap kerberos ntlm sha1 sha256 sha512 bcrypt argon2 ' +
+    'scrypt pbkdf2 md5 hmac random generated secure insecure encrypted base64 hex utf8 ascii binary json yaml xml include omit same-origin ' +
+    'cors no-cors skip ignore allow deny always never prompt ask keychain keyring credstore wincred osxkeychain pass store cache')
+    .split(' '),
+);
+/** Unquoted words that are code, not literals (tokens = new Parser(), password = config.password). */
+const CODE_WORDS = new Set(
+  ('new await async function require import this self null undefined none nil return typeof void yield lambda def var let const os ' +
+    'process env config settings options opts params args props input request req res response data value item result obj object cfg conf ' +
+    'ctx context state window document global globalThis')
+    .split(' '),
+);
+const PLACEHOLDER_COMPOUND =
+  /^(?:(?:mock|dummy|fake|test|example|sample|demo|placeholder|default|my|your|some|xxx|foo|bar)[-_ ]?(?:token|secret|password|passwd|pass|pwd|key|api[-_]?key|value|creds?|credentials?)s?|(?:token|secret|password|passwd|pass|key|value)[-_ ]?(?:here|placeholder|example|goes[-_ ]?here))$/i;
+const SENTENCE_WORDS = new Set('the a an and or of to in for with will be is are was were it this that used can may must should if when then not'.split(' '));
+
+/** Regex source, member-access chains, calls: text that is code rather than a secret value. */
+export function looksLikeCode(v: string, quoted: boolean): boolean {
+  if (/\\[sdwbSDWnt]|\(\?[:=!<]|\[\^|\]\*|\]\+|\]\{|\.\*|\)\?/.test(v) && (v.match(/[[\](){}?*+|\\^$]/g) ?? []).length >= 3) return true;
+  if (!quoted) {
+    if (CODE_WORDS.has(v)) return true;
+    if (/^[A-Za-z_$][\w$]*(?:\??\.[A-Za-z_$][\w$]*)+(?:\(\))?$/.test(v) && !/\d/.test(v)) return true;
+    if (/^[A-Za-z_$][\w$.]*\(.*\)$/.test(v)) return true;
+  }
+  return false;
 }
 
 const FILE_PATH = /^(?:[A-Za-z]:\\|~?\/|\.{1,2}\/)[\w.\/\\ -]*\.(?:pem|key|crt|cer|p12|pfx|jks|txt|json|ya?ml|env|conf|ini|pub|gpg|asc|keystore)$/i;
@@ -255,8 +294,17 @@ export function valueVerdict(raw: string, o: ValueOpts): Verdict {
     if (!/^\d{3,8}$/.test(v)) return { ok: false, conf: 0, why: 'not a PIN' };
     return { ok: true, conf: o.strength === 'strong' ? 0.85 : 0.75, why: '' };
   }
-  const words = v.split(/\s+/).length;
+  if (PLACEHOLDER_COMPOUND.test(v)) return { ok: false, conf: 0, why: 'placeholder' };
+  if (ENUM_WORDS.has(v.toLowerCase())) return { ok: false, conf: 0, why: 'mode word' };
+  if (looksLikeCode(v, o.quoted)) return { ok: false, conf: 0, why: 'code' };
+  // absolute paths (PWD=/Users/x, C:\\Users\\x): a directory, not a password
+  if (/^(?:~?\/|\.{1,2}\/|[A-Za-z]:[\\/])\S*[\\/]\S*$|^\/[\w.-]+$/.test(v) && !/[!@#$%^&*]/.test(v)) return { ok: false, conf: 0, why: 'path' };
+  const wordList = v.split(/\s+/);
+  const words = wordList.length;
   if (words > (o.passphrase ? 12 : 3) || (words === 3 && !o.passphrase)) return { ok: false, conf: 0, why: 'sentence' };
+  // passphrases are random words; prose ("will be used to decrypt it. Multiple") is not
+  if (words >= 3 && (/[.!?;,]\s/.test(v) || wordList.filter((w) => SENTENCE_WORDS.has(w.toLowerCase())).length >= 2)) return { ok: false, conf: 0, why: 'sentence' };
+  if (o.key && words >= 2 && new RegExp(`\\b(?:pass(?:word|phrase)?|secret|token)\\b`, 'i').test(v)) return { ok: false, conf: 0, why: 'prompt text' };
   if (words === 2 && !o.passphrase && !o.quoted) return { ok: false, conf: 0, why: 'sentence' };
   if (PLAIN_URL.test(v) && o.type !== 'PASSWORD') return { ok: false, conf: 0, why: 'url' };
   if (FILE_PATH.test(v)) return { ok: false, conf: 0, why: 'path' };
@@ -271,6 +319,8 @@ export function valueVerdict(raw: string, o: ValueOpts): Verdict {
   const minLen = o.strength === 'strong' ? 3 : o.strength === 'medium' ? 4 : 8;
   if (len < minLen) return { ok: false, conf: 0, why: 'too short' };
   const cls = charClasses(v);
+  // ambiguous cues (pass, pw, credentials, auth) with a plain word next to them: a label, not a password
+  if (o.strength !== 'strong' && /^[a-z]+(?:-[a-z]+)?$/.test(v) && len <= 14) return { ok: false, conf: 0, why: 'plain word' };
   if (o.strength === 'weak') {
     const ent = shannon(v);
     if (!(cls >= 2 && len >= 8) && !(ent >= 3.5 && len >= 12)) return { ok: false, conf: 0, why: 'not secret-shaped' };

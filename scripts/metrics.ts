@@ -4,6 +4,8 @@ const args = process.argv.slice(2);
 const strict = args.includes('--strict');
 const details = args.includes('--details');
 const only = args.find((a) => a.startsWith('--set='))?.slice(6) as 'dev' | 'holdout' | undefined;
+/** --sniff: ignore file names, as when text is pasted (format detection is then part of the test) */
+const sniff = args.includes('--sniff');
 const all = loadFixtures();
 
 const f = (n: number, w: number, d = 1) => n.toFixed(d).padStart(w);
@@ -28,8 +30,8 @@ if (!only) sets.push(['all', all]);
 
 let missed = false;
 for (const [name, fx] of sets) {
-  const ev = evaluate(fx);
-  table(`== ${name} set (${fx.length} fixtures) ==`, ev);
+  const ev = evaluate(fx, sniff);
+  table(`== ${name} set (${fx.length} fixtures${sniff ? ', no file names' : ''}) ==`, ev);
   if (details) for (const d of ev.details) console.log(`  ${d.kind} ${d.fixture}:${d.line} ${d.type} ${JSON.stringify(d.text)}${d.reason ? '  <- ' + d.reason : ''}`);
   const s = ev.byCategory.secret;
   const ok = !!s && recall(s) >= 95 && precision(s) >= 90;

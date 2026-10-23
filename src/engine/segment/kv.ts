@@ -53,7 +53,12 @@ export function segmentKv(text: string, flavour: KvFlavour): Part {
     const sepSet = flavour === 'env' ? '=' : flavour === 'properties' ? '=: \t' : flavour === 'yaml-lite' ? ':' : '=:';
     while (ke < lineEnd && !sepSet.includes(text[ke])) ke++;
     if (ke >= lineEnd && flavour !== 'properties') {
-      // no separator: a bare line (e.g. continuation of a multi-line value)
+      // no separator: a continuation line, a list item or plain text pasted along with the config.
+      // It is still scanned; in broken YAML it stays bare-only so a placeholder cannot become syntax.
+      let e = lineEnd;
+      while (e > k && /\s/.test(text[e - 1])) e--;
+      if (flavour === 'yaml-lite') b.add(k, e, 'config', { quote: '', vt: 'str', bare: true });
+      else b.add(i, e, 'prose');
       pos = eol + 1;
       continue;
     }

@@ -47,7 +47,7 @@ export const orgDetector: Detector = {
       let i = 0;
       while (i < words.length) {
         const w = words[i].w;
-        if (ORG_LEAD_STOP.has(w.toLowerCase()) || FUNC_STOP.has(w.toLowerCase()) || MONTHDAY.test(w) || new RegExp(`^${JOIN}$`, 'i').test(w)) i++;
+        if (ORG_LEAD_STOP.has(w.toLowerCase()) || FUNC_STOP.has(w.toLowerCase()) || MONTHDAY.test(w) || /^\d+$/.test(w) || new RegExp(`^${JOIN}$`, 'i').test(w)) i++;
         else break;
       }
       while (words.length > i && new RegExp(`^${JOIN}$`, 'i').test(words[words.length - 1].w) && words[words.length - 1].w !== '&') words.pop();

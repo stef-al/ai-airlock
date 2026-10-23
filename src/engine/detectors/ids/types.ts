@@ -7,6 +7,8 @@ export interface IdMatch {
   group?: number;
   conf: number;
   reason: string;
+  /** a bare digit run with no cue: only reported in Aggressive mode */
+  needsCue?: boolean;
 }
 export interface IdPack {
   id: string;
@@ -15,8 +17,10 @@ export interface IdPack {
   type: string;
   /** global regex; the detector runs it over the text */
   re: RegExp;
-  /** words near the number that make it much more likely to be this ID */
+  /** words right before the number that make it much more likely to be this ID */
   cue?: RegExp;
+  /** key names (JSON/YAML/CSV header…) that hold this ID */
+  keyCue?: RegExp;
   /** return null to reject. `cue` is true when a cue word is right before the match */
   validate(m: RegExpExecArray, cue: boolean): IdMatch | null;
 }
@@ -26,4 +30,12 @@ export const digitsOf = (s: string) => s.replace(/\D/g, '');
 export function validYmd(y: number, m: number, d: number): boolean {
   if (m < 1 || m > 12 || d < 1) return false;
   return d <= new Date(y, m, 0).getDate();
+}
+
+/** 1111111111, 1234567890: test data, not an ID */
+export function dummyDigits(d: string): boolean {
+  if (/^(\d)\1+$/.test(d)) return true;
+  const up = '01234567890123456789';
+  const down = '98765432109876543210';
+  return up.includes(d) || down.includes(d);
 }

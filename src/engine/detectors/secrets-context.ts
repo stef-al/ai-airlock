@@ -69,8 +69,11 @@ function readValue(t: string, v: number): Val | null {
   return { s: v, e, quoted: false };
 }
 
-const PROSE_CONN =
-  /\s+(?:(?:for|of|to|von|für|fuer|pour|de|para|per|di|pro|dla)\s+(?:the\s+|der\s+|die\s+|den\s+|dem\s+|le\s+|la\s+|les\s+|el\s+|il\s+|l')?[\p{L}\d._@-]+(?:\s+[\p{L}\d._@-]+){0,2}?\s+)?(?:is|was|will\s+be|should\s+be|lautet|ist|war|est|était|es|era|è|jest|je|byl|bylo|to)\s*:?\s+/iuy;
+const PREP = 'for|of|to|on|at|von|für|fuer|zu|zum|zur|pour|de|du|des|para|per|di|da|pro|dla|do|na';
+const PROSE_CONN = new RegExp(
+  String.raw`\s+(?:(?:${PREP})\s+(?:the\s+|der\s+|die\s+|den\s+|dem\s+|le\s+|la\s+|les\s+|el\s+|il\s+|l')?[\p{L}\d._@-]+(?:\s+[\p{L}\d._@-]+){0,2}?)?\s*(?:(?:is|was|will\s+be|should\s+be|lautet|ist|war|est|était|es|era|è|jest|je|byl|bylo|to)\s*:?|:|=)\s*`,
+  'iuy',
+);
 
 function methodLabel(doc: Doc, p: Pair): string {
   const l = formatLabel(doc);
@@ -215,7 +218,13 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
       }
     }
     if (vstart < 0) continue;
-    const val = readValue(t, vstart);
+    let val = readValue(t, vstart);
+    if (val && !val.quoted && /passphrase|seed|mnemonic/.test(ki.keyword)) {
+      let e = t.indexOf('\n', val.s);
+      if (e < 0) e = n;
+      while (e > val.s && /[\s.,;]/.test(t[e - 1])) e--;
+      val = { s: val.s, e, quoted: false };
+    }
     if (!val) continue;
     if (skip.has(val.s)) continue;
     const value = t.slice(val.s, val.e);
@@ -254,6 +263,8 @@ const USER_PASS =
   /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
 const LOGIN_PAIR =
   /\b(?:logins?|credentials|zugangsdaten|zugang|access|account)\b[^\n]{0,60}?(?:\bis\b|\bare\b|\bist\b|\bsind\b|:|=)\s*['"`]?([\w.@-]{2,40})['"`]?\s*[/|]\s*['"`]?([^\s/|'"`]{4,64})/gi;
+const B64_CRED =
+  /(?:btoa|base64(?:\.b64encode|\.encode|\.urlsafe_b64encode)?|Buffer\.from|b64encode|ToBase64String|encodebytes|GetBytes)\(\s*(?:b?['"`])([^'"`:\s]{1,64}):([^'"`\s]{3,128})['"`]/g;
 const AUTH_TUPLE = /\b(?:auth|credentials|basic_?auth|http_?auth)\s*[=:]\s*[(\[]\s*(['"])([^'"\n]{0,64})\1\s*,\s*(['"])([^'"\n]{3,128})\3\s*[)\]]/gi;
 
 function extra(doc: Doc, skip: Set<number>): Hit[] {
@@ -273,6 +284,13 @@ function extra(doc: Doc, skip: Set<number>): Hit[] {
     const s = m.index + m[0].lastIndexOf(m[2]);
     if (!(/\d/.test(v) || /[^A-Za-z0-9]/.test(v)) || isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
     out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.72, "second value of a 'login: user / password' pair in text", 2, 'login-pair'));
+  }
+  B64_CRED.lastIndex = 0;
+  while ((m = B64_CRED.exec(t))) {
+    const v = m[2];
+    const s = m.index + m[0].lastIndexOf(v);
+    if (isPlaceholderValue(v) || isReference(v) || skip.has(s)) continue;
+    out.push(mkHit(ID, 'PASSWORD', s, s + v.length, 0.82, 'password in user:password text that is about to be base64-encoded', 2, 'b64-cred'));
   }
   AUTH_TUPLE.lastIndex = 0;
   while ((m = AUTH_TUPLE.exec(t))) {

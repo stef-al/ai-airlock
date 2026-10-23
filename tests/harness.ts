@@ -118,6 +118,7 @@ export interface Detail {
 export interface Evaluation {
   byCategory: Record<string, Counts>;
   byDetector: Record<string, Counts>;
+  byType: Record<string, Counts>;
   total: Counts;
   details: Detail[];
 }
@@ -126,6 +127,7 @@ export function evaluate(fixtures: Fixture[]): Evaluation {
   const t2 = tier2Active();
   const byCategory: Record<string, Counts> = {};
   const byDetector: Record<string, Counts> = {};
+  const byType: Record<string, Counts> = {};
   const total = zero();
   const details: Detail[] = [];
   const bump = (m: Record<string, Counts>, k: string, f: (c: Counts) => void) => f((m[k] ??= zero()));
@@ -149,6 +151,7 @@ export function evaluate(fixtures: Fixture[]): Evaluation {
         }
       });
       bump(byCategory, cat, (c) => void c.expected++);
+      bump(byType, e.type, (c) => void c.expected++);
       total.expected++;
       if (best >= 0) {
         used.add(best);
@@ -162,10 +165,12 @@ export function evaluate(fixtures: Fixture[]): Evaluation {
           c.tp++;
           c.exact += exact;
         });
+        bump(byType, e.type, (c) => void c.tp++);
         total.tp++;
         total.exact += exact;
       } else {
         bump(byCategory, cat, (c) => void c.fn++);
+        bump(byType, e.type, (c) => void c.fn++);
         total.fn++;
         details.push({ fixture: fx.id, kind: 'FN', type: e.type, text: e.text.slice(0, 60), line: lineOf(e.start) });
       }
@@ -173,16 +178,18 @@ export function evaluate(fixtures: Fixture[]): Evaluation {
     hits.forEach((h: Hit, i) => {
       bump(byCategory, h.category, (c) => void c.hits++);
       bump(byDetector, h.detector, (c) => void c.hits++);
+      bump(byType, h.type, (c) => void c.hits++);
       total.hits++;
       if (!used.has(i)) {
         bump(byCategory, h.category, (c) => void c.fp++);
         bump(byDetector, h.detector, (c) => void c.fp++);
+        bump(byType, h.type, (c) => void c.fp++);
         total.fp++;
         details.push({ fixture: fx.id, kind: 'FP', type: h.type, text: fx.text.slice(h.start, h.end).slice(0, 60), detector: h.detector, reason: h.reason, line: lineOf(h.start) });
       }
     });
   }
-  return { byCategory, byDetector, total, details };
+  return { byCategory, byDetector, byType, total, details };
 }
 
 export const pct = (n: number, d: number) => (d ? (100 * n) / d : 100);

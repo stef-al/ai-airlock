@@ -16,8 +16,8 @@ export { Mapping } from './placeholders';
 export { restoreText, type RestoreReport } from './restore';
 export { defaultSettings, mergeSettings, BUILTIN_PROFILES, exportProfile, parseProfile } from './settings';
 export { buildDoc } from './segment';
-export { compileUserRegex, regexRisk } from './detectors/custom';
-export { regionFromLocale } from './detectors/contact';
+export { compileUserRegex, regexRisk, typeName } from './userRegex';
+export { regionFromLocale } from './settings';
 export type { MaskResult } from './mask';
 
 const extra: Detector[] = [];

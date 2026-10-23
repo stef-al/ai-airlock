@@ -256,7 +256,7 @@ export function valueVerdict(raw: string, o: ValueOpts): Verdict {
     return { ok: true, conf: o.strength === 'strong' ? 0.85 : 0.75, why: '' };
   }
   const words = v.split(/\s+/).length;
-  if (words >= 4 || (words === 3 && !o.passphrase)) return { ok: false, conf: 0, why: 'sentence' };
+  if (words > (o.passphrase ? 12 : 3) || (words === 3 && !o.passphrase)) return { ok: false, conf: 0, why: 'sentence' };
   if (words === 2 && !o.passphrase && !o.quoted) return { ok: false, conf: 0, why: 'sentence' };
   if (PLAIN_URL.test(v) && o.type !== 'PASSWORD') return { ok: false, conf: 0, why: 'url' };
   if (FILE_PATH.test(v)) return { ok: false, conf: 0, why: 'path' };

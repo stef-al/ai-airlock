@@ -1,9 +1,20 @@
 import { visit } from 'jsonc-parser';
 import type { Pair } from '../types';
 import { SegBuilder } from '../util';
-import type { Part } from './part';
+import { shiftPart, type Part } from './part';
 
+/** Pasted JSON is often a fragment ("key": value, ...); wrap it in braces so it parses. */
 export function segmentJson(text: string): Part {
+  if (/^\s*[[{]/.test(text) || !text.trim()) return segmentJsonRaw(text);
+  const inner = shiftPart(segmentJsonRaw('{' + text + '\n}'), -1);
+  const len = text.length;
+  const segments = inner.segments
+    .filter((s) => s.end > 0 && s.start < len)
+    .map((s) => ({ ...s, start: Math.max(0, s.start), end: Math.min(len, s.end) }));
+  return { ...inner, segments, pairs: inner.pairs.filter((p) => p.valStart >= 0 && p.valEnd <= len), errors: inner.errors };
+}
+
+function segmentJsonRaw(text: string): Part {
   const b = new SegBuilder(text.length);
   const pairs: Pair[] = [];
   let errors = 0;

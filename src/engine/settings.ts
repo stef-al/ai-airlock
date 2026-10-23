@@ -86,3 +86,10 @@ export function parseProfile(json: string): Profile {
   }
   return { name: o.name, settings: o.settings };
 }
+
+export function regionFromLocale(loc?: string): string {
+  const l = loc ?? (typeof navigator !== 'undefined' ? navigator.language : 'en-US');
+  const m = /[-_]([A-Za-z]{2})\b/.exec(l ?? '');
+  return (m ? m[1] : 'US').toUpperCase();
+}
+

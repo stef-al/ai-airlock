@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { analyze, Cancelled, defaultSettings, mask, Mapping, maskText, mergeSettings, restoreText, type Settings } from '../src/engine';
 import { ibanValid, luhn } from '../src/engine/detectors/financial';
-import { compileUserRegex } from '../src/engine/detectors/custom';
+import { compileUserRegex } from '../src/engine/userRegex';
 import { KeyAnalyzer, DEFAULT_KEYWORDS, DEFAULT_QUALIFIERS } from '../src/engine/cues';
 import { expandMacros } from './tokens';
 
@@ -198,5 +198,19 @@ describe('modules', () => {
     const a = analyze('password=hunter22x', S());
     const m = new Mapping();
     expect(mask(a.doc, a.hits, m, S()).output).toBe('password=[PASSWORD_1]');
+  });
+});
+
+describe('detector metadata', () => {
+  it('matches the registered detectors', async () => {
+    const { allDetectors } = await import('../src/engine');
+    const { DETECTOR_META } = await import('../src/engine/meta');
+    const real = allDetectors();
+    expect(DETECTOR_META.map((d) => d.id).sort()).toEqual(real.map((d) => d.id).sort());
+    for (const m of DETECTOR_META) {
+      const d = real.find((x) => x.id === m.id)!;
+      expect(m.category).toBe(d.category);
+      expect(m.defaultScopes).toEqual(d.defaultScopes);
+    }
   });
 });

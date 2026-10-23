@@ -52,12 +52,6 @@ const DATE_LIKE = /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$|^\d{1,2}[-./]\d{1,2}[-./]\d{2
 const DATE_START = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?!\d)/;
 const IP_LIKE = /^\d{1,3}(?:\.\d{1,3}){3}$/;
 
-export function regionFromLocale(loc?: string): string {
-  const l = loc ?? (typeof navigator !== 'undefined' ? navigator.language : 'en-US');
-  const m = /[-_]([A-Za-z]{2})\b/.exec(l ?? '');
-  return (m ? m[1] : 'US').toUpperCase();
-}
-
 export const phoneDetector: Detector = {
   id: 'contact.phone',
   label: 'Phone numbers',

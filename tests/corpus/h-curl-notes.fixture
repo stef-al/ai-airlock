@@ -1,0 +1,28 @@
+#! name: markdown debugging notes
+#! file: notes.md
+#! set: holdout
+#!---
+# Debugging the billing API
+
+Use the staging token from the vault, then:
+
+```bash
+export BILLING_TOKEN=⟦TOKEN:{{ghpat:61}}⟧
+curl -s -H "Authorization: Bearer $BILLING_TOKEN" https://billing.example.com/v1/invoices
+curl -s -u admin:⟦PASSWORD:Staging#Pw77⟧ https://billing.example.com/health
+curl -s "https://billing.example.com/export?format=csv&api_key=⟦API_KEY:{{rand:32:62}}⟧"
+```
+
+Response headers looked like this:
+
+```http
+HTTP/1.1 200 OK
+Set-Cookie: session_id=⟦COOKIE:{{rand:32:63}}⟧; Path=/; HttpOnly
+X-Request-Id: {{uuid:64}}
+Content-Type: application/json
+```
+
+Notes:
+- the `api_key` parameter is deprecated, use the `Authorization` header instead
+- see commit {{hex:40:65}} for the change; build 4.2.1
+- contact ⟦EMAIL:dana.ruiz@globex-corp.net⟧ if the token expired

@@ -1,0 +1,14 @@
+#! name: spring properties
+#! file: application.properties
+#!---
+server.port=8080
+spring.datasource.url=jdbc:postgresql://db01:5432/billing
+spring.datasource.username=billing
+spring.datasource.password=⟦PASSWORD:Spr1ng-Db#99⟧
+spring.mail.password=${MAIL_PASSWORD}
+spring.security.user.password=⟦PASSWORD:Adm1n-Sec#3⟧
+jwt.secret=⟦SECRET:{{b64:44:271}}⟧
+app.password.min-length=10
+app.password-reset-url=https://app.example.com/reset
+aws.secretKey=⟦SECRET:{{awssecret:272}}⟧
+logging.level.root=INFO

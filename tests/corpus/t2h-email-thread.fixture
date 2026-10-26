@@ -1,0 +1,20 @@
+#! name: multilingual email thread
+#! file: thread.eml
+#! set: holdout
+#!---
+From: ⟦PERSON:Jana Nováková⟧ <⟦EMAIL:jana.novakova@skoda-partner.cz⟧>
+To: "⟦PERSON:Marc Dubois⟧" <⟦EMAIL:marc.dubois@lyon-logistique.fr⟧>, support@vendor-example.com
+Subject: Smlouva / contrat
+
+Dobrý den ⟦PERSON:Marc⟧,
+
+posílám smlouvu od ⟦ORG:Škoda Partner s.r.o.⟧ k podpisu. Bonjour,
+
+Sehr geehrte Frau ⟦PERSON:Keller⟧, vielen Dank. Dr. ⟦PERSON:Alvarez⟧ von ⟦ORG:Lyon Logistique S.A.⟧ meldet sich morgen.
+⟦PERSON:Jana Nováková⟧ hat die Daten geprüft; ⟦PERSON:Jana Nováková⟧ ist die Ansprechpartnerin.
+
+Nothing personal here: Project Roadmap, Budget Workshop, Spring Release and the Monday Review. Will you join? May I add Mark Down to the list?
+Rose Garden Cafe sells apples. The Limited warranty applies; Company policy is attached.
+
+S pozdravem
+⟦PERSON:Jana Nováková⟧

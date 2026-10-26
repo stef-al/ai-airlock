@@ -1,0 +1,18 @@
+#! name: German support email
+#! file: mail.txt
+#! set: holdout
+#! settings: {"region":"DE"}
+#!---
+Von: ⟦PERSON:Katrin Vogel⟧ <⟦EMAIL:katrin.vogel@nordlicht-logistik.de⟧>
+An: support@vendor-example.com
+Betreff: Zugang zum Portal
+
+Hallo Team,
+
+unser Admin-Konto im Portal ist gesperrt. Das Passwort lautet ⟦PASSWORD:Fr1schLuft#24⟧, bitte setzt es zurück.
+Rückruf bitte unter ⟦PHONE:+49 40 5551 2345⟧ oder mobil ⟦PHONE:0171 5550142⟧.
+Unsere IBAN für die Rückerstattung: ⟦IBAN:{{iban:DE:31}}⟧ (⟦ORG:Nordlicht Logistik GmbH⟧).
+Das Passwort ist leider zu kurz, hat das System gemeldet. Version 4.2.1 des Portals ist im Einsatz.
+
+Viele Grüße
+⟦PERSON:Katrin Vogel⟧

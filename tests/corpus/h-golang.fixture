@@ -1,0 +1,40 @@
+#! name: Go service config
+#! file: main.go
+#! set: holdout
+#!---
+package main
+
+import (
+	"database/sql"
+	"fmt"
+	"os"
+)
+
+type Config struct {
+	Host     string
+	User     string
+	Password string
+	Token    string
+}
+
+var defaultConfig = Config{
+	Host:     "⟦HOST:db01.internal⟧",
+	User:     "svc_reports",
+	Password: "⟦PASSWORD:G0pher#Reports1⟧",
+	Token:    os.Getenv("REPORTS_TOKEN"),
+}
+
+const apiSecret = "⟦SECRET:{{rand:40:71}}⟧"
+
+func connect(cfg Config) (*sql.DB, error) {
+	dsn := fmt.Sprintf("host=%s user=%s password=%s dbname=reports sslmode=disable", cfg.Host, cfg.User, cfg.Password)
+	return sql.Open("postgres", dsn)
+}
+
+func validatePassword(p string) bool { return len(p) >= 12 }
+
+func main() {
+	db, _ := connect(defaultConfig)
+	_ = db
+	fmt.Println("password length ok", validatePassword("short"))
+}

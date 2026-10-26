@@ -1,0 +1,27 @@
+#! name: C# console app
+#! file: Program.cs
+#!---
+using System;
+using System.Data.SqlClient;
+using System.Net;
+
+namespace Billing
+{
+    public class Program
+    {
+        private const int PasswordMinLength = 12;
+        private static string _password = "⟦PASSWORD:Cs#arp-Pw9⟧";
+
+        public static void Main(string[] args)
+        {
+            var conn = new SqlConnection("Server=sql01;Database=Billing;User Id=sa;Password=⟦PASSWORD:Sql-Sa#2024⟧;");
+            var cred = new NetworkCredential("svc", "⟦PASSWORD:Net-Cred-5⟧");
+            var jwtKey = Configuration["Jwt:Key"];
+            var token = Environment.GetEnvironmentVariable("BILLING_TOKEN");
+            string apiKey = "⟦API_KEY:{{rand:40:221}}⟧";
+            Console.WriteLine("Password policy: min " + PasswordMinLength);
+        }
+
+        public bool ValidatePassword(string password) => password.Length >= PasswordMinLength;
+    }
+}

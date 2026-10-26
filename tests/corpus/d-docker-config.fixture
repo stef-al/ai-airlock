@@ -1,0 +1,16 @@
+#! name: docker config and ECS task env
+#! file: config.json
+#!---
+{
+  "auths": {
+    "registry.example.com": { "auth": "⟦SECRET:{{b64:32:131}}⟧" },
+    "ghcr.io": { "auth": "⟦SECRET:{{b64:40:132}}⟧", "email": "⟦EMAIL:ci-bot@acme-industries.com⟧" }
+  },
+  "credsStore": "desktop",
+  "currentContext": "default",
+  "environment": [
+    { "name": "DB_PASSWORD", "value": "⟦PASSWORD:Ecs!Task-Pw8⟧" },
+    { "name": "LOG_LEVEL", "value": "info" },
+    { "name": "API_BASE", "value": "https://api.example.com" }
+  ]
+}

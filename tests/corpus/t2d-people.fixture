@@ -1,0 +1,14 @@
+#! name: names with cues
+#! file: people.txt
+#!---
+Hi ⟦PERSON:Sofia⟧,
+
+thanks for sending the files. Could you ask ⟦PERSON:Sofia Marini⟧ to call me? Her colleague ⟦PERSON:Lopez, Maria⟧ already did.
+Maria's manager is ⟦PERSON:Thomas Weber⟧; reach him at ⟦EMAIL:thomas.weber@globex-corp.net⟧ or ⟦EMAIL:maria.lopez@globex-corp.net⟧.
+Hello ⟦PERSON:Oluwaseun⟧, my name is ⟦PERSON:Ximena Cortés⟧ and I'm the new analyst.
+Contact: ⟦PERSON:Peter Gibbons⟧, Ansprechpartnerin: ⟦PERSON:Katrin Vogel⟧
+{"owner": "⟦PERSON:Sam Green⟧", "name": "billing-service", "author": "⟦PERSON:Lena Fischer⟧"}
+Yesterday ⟦PERSON:Fatima Hussain⟧ visited the office.
+
+Mit freundlichen Grüßen
+⟦PERSON:Thomas Weber⟧

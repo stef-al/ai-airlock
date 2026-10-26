@@ -1,0 +1,14 @@
+#! name: markdown with table
+#! file: accounts.md
+#!---
+# Service accounts
+
+Rotation is due on 2024-09-30. The table below lists what the AI should help us clean up.
+
+| Service | Owner | Email | Password |
+|---------|-------|-------|----------|
+| Jenkins | ⟦PERSON:Lena Fischer⟧ | ⟦EMAIL:lena.fischer@nordlicht-logistik.de⟧ | ⟦PASSWORD:J3nkins#Prod⟧ |
+| Grafana | ⟦PERSON:Omar Haddad⟧ | ⟦EMAIL:omar.haddad@nordlicht-logistik.de⟧ | ⟦PASSWORD:Gr4f-2024!⟧ |
+
+See the [runbook](https://wiki.example.com/runbook?token=⟦TOKEN:{{rand:30:151}}⟧) for details.
+Inline example: `curl -u svc:⟦PASSWORD:Inl1ne-Pw⟧ https://ci.example.com` works.

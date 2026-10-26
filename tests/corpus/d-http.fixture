@@ -1,0 +1,17 @@
+#! name: raw http exchange
+#! file: request.http
+#!---
+POST /api/v2/login HTTP/1.1
+Host: api.example.com
+Authorization: Basic ⟦PASSWORD:{{b64:24:241}}⟧
+X-API-Key: ⟦API_KEY:{{rand:32:242}}⟧
+Cookie: theme=dark; sessionid=⟦COOKIE:{{rand:32:243}}⟧; lang=en
+Content-Type: application/json
+
+{"username": "svc", "password": "⟦PASSWORD:Http#Login-5⟧"}
+
+HTTP/1.1 200 OK
+Set-Cookie: JSESSIONID=⟦COOKIE:{{rand:28:244}}⟧; Path=/; Secure; HttpOnly
+Authorization: Bearer ⟦TOKEN:{{jwt:245}}⟧
+Cache-Control: no-store
+X-Request-Id: {{uuid:246}}

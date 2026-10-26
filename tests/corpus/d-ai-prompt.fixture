@@ -1,0 +1,21 @@
+#! name: pasted ai prompt
+#! file: prompt.md
+#! settings: {"customLists":[{"id":"l2","name":"Projects","type":"PROJECT","enabled":true,"terms":["Project Falcon"]}]}
+#!---
+Hi, my deployment of ⟦PROJECT:Project Falcon⟧ fails with a 401. Here is my config, can you spot the problem?
+
+```yaml
+server:
+  port: 8443
+auth:
+  client_id: falcon-web
+  client_secret: ⟦SECRET:{{rand:40:261}}⟧
+  token_url: https://login.example.com/oauth/token
+database:
+  url: jdbc:postgresql://db01:5432/falcon
+  username: falcon
+  password: ⟦PASSWORD:Fa1con#Db-2024⟧
+```
+
+I also tried `curl -H "X-Api-Key: ⟦API_KEY:{{rand:32:262}}⟧" https://api.example.com/ping` and it works. My email is ⟦EMAIL:kim.park@globex-corp.net⟧
+if you need to send anything. Password is stored in the vault, so it can't be wrong.

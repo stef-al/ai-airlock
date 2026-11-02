@@ -8,7 +8,7 @@ const docs = new Map<string, Doc>();
 
 function docFor(key: string, text: string, fileName: string | undefined, format: Doc['format'], lang?: Doc['lang']): Doc {
   const have = docs.get(key);
-  if (have && have.text === text) return have;
+  if (have && have.text === text && have.format === format) return have;
   const d = buildDoc(text, { format, lang, fileName });
   docs.set(key, d);
   if (docs.size > 6) docs.delete(docs.keys().next().value as string);
@@ -21,7 +21,7 @@ self.onmessage = (e: MessageEvent<ReqWithId>) => {
   try {
     switch (req.type) {
       case 'analyze': {
-        const a = analyze(req.text, req.settings, { fileName: req.fileName });
+        const a = analyze(req.text, req.settings, { fileName: req.fileName, ocr: req.ocr });
         docs.set(req.docKey, a.doc);
         if (docs.size > 6) docs.delete(docs.keys().next().value as string);
         reply({ ok: true, result: { hits: a.hits, format: a.doc.format, lang: a.doc.lang, ms: a.ms } });

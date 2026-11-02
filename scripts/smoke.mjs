@@ -55,11 +55,16 @@ await page.getByLabel('AI reply').fill(`a=${pa} b=${pb}`);
 await page.waitForFunction((s) => document.querySelector('.out')?.textContent?.includes(s), sb, { timeout: 8000 });
 const both = await page.locator('.out').innerText();
 if (both.trim() !== `a=${sa} b=${sb}`) throw new Error('multi-document restore failed: ' + both);
+// the text-only file points images to airlock-media.html
+await page.getByRole('tab', { name: /Mask/ }).click();
+const tiny = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64');
+await page.locator('input[type=file][multiple]').setInputFiles([{ name: 'shot.png', mimeType: 'image/png', buffer: tiny }]);
+await page.locator('.notice', { hasText: 'airlock-media.html' }).waitFor({ timeout: 5000 });
 const external = requests.filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:'));
 if (external.length) throw new Error('network requests: ' + external.join(', '));
 // CSP really blocks outgoing requests
 const blocked = await page.evaluate(() => fetch('https://example.com/').then(() => 'LEAK', () => 'blocked'));
 if (blocked !== 'blocked') throw new Error('fetch was not blocked by CSP');
 if (problems.some((p) => !/Content Security Policy|Refused to connect/.test(p))) throw new Error('console problems:\n' + problems.join('\n'));
-console.log('smoke OK:', guard, '| restore OK | two files (one UTF-16) restore | keyboard review | fetch blocked by CSP | no external requests');
+console.log('smoke OK:', guard, '| restore OK | two files (one UTF-16) restore | keyboard review | images point to the media file | fetch blocked by CSP | no external requests');
 await browser.close();

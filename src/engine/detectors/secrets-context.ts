@@ -294,6 +294,12 @@ const HCL_VAR = /\bvariable\s+"([^"\n]{1,80})"\s*\{([^{}]{0,800})\}/g;
 /** Windows: setx API_KEY "value" (no '=' between name and value) */
 const SETX = /(?:^|[\s;&|(])setx\s+([A-Za-z_][\w.]{0,80})\s+(?:"([^"\n]*)"|([^\s"]+))/gim;
 
+// name/value pairs written out: "name": "DB_PASSWORD", "value": "x" · key="ServicePassword" value="x" ·
+// - name: API_KEY ⏎ value: x (Kubernetes env, .NET appSettings, CI configs, also in text)
+const NAME_VALUE = /\b(?:name|key|Name|Key|variable)["']?\s{0,4}[:=]\s{0,4}["']?([A-Za-z_][\w.-]{1,60})["']?\s{0,4}[,;]?[ \t]{0,8}(?:\r?\n[ \t]{0,40}-?[ \t]{0,4})?["']?(?:value|Value|val)["']?\s{0,4}[:=]\s{0,4}(["']?)([^"'\s,;}<>]{1,200})\2/g;
+// <password>x</password>, <apiKey>x</apiKey>
+const XML_ELEMENT = /<([A-Za-z_][\w.-]{0,40})>([^<\n]{1,200})<\/\1>/g;
+
 function extra(doc: Doc, skip: Set<number>, an: KeyAnalyzer): Hit[] {
   const t = doc.text;
   const out: Hit[] = [];
@@ -304,6 +310,20 @@ function extra(doc: Doc, skip: Set<number>, an: KeyAnalyzer): Hit[] {
     if (v.ok) out.push(mkHit(ID, ki.type, start, start + raw.length, v.conf, reason, 2, rule));
   };
   let r: RegExpExecArray | null;
+  if (/value/i.test(t)) {
+    NAME_VALUE.lastIndex = 0;
+    while ((r = NAME_VALUE.exec(t))) {
+      const raw = r[3];
+      keyed(r[1], raw, r.index + r[0].length - raw.length - r[2].length, !!r[2], `value of the entry named '${r[1]}'`, 'name-value');
+    }
+  }
+  if (t.includes('</')) {
+    XML_ELEMENT.lastIndex = 0;
+    while ((r = XML_ELEMENT.exec(t))) {
+      const raw = r[2].trim();
+      if (raw) keyed(r[1], raw, r.index + r[1].length + 2 + r[2].indexOf(raw), false, `content of the <${r[1]}> element`, 'xml-element');
+    }
+  }
   REF_DEFAULT.lastIndex = 0;
   while ((r = REF_DEFAULT.exec(t))) {
     const def = r[3];

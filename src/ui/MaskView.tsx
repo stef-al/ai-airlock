@@ -1,5 +1,7 @@
 import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Hit, Settings } from '../engine/light';
+import { ImageReview, type ImageOps } from './ImageReview';
+import { MEDIA } from './media';
 import { hitKey, selectedHits, type DocState } from './types';
 import { copyText } from './util';
 
@@ -21,6 +23,9 @@ interface Props {
   onMaskAlways(d: DocState, start: number, end: number, type: string): void;
   onRetry(id: string): void;
   onCancel(): void;
+  imageOps: ImageOps;
+  /** masked text to copy (embedded images swapped for their redacted copy) */
+  outputOf(d: DocState): string;
 }
 
 const LOW = 0.7;
@@ -168,14 +173,16 @@ export function MaskView(p: Props) {
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => e.target.files && p.onFiles(e.target.files)} />
         <div className="grow" />
         {p.busy && <button onClick={p.onCancel}>Cancel</button>}
-        <span className="small muted">{d.status === 'analyzing' ? 'detecting…' : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}</span>
+        <span className="small muted">
+          {d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
+        </span>
       </div>
 
       <div className="summary">
-        {counts.length === 0 && <span className="muted small">{d.status === 'ready' ? 'Nothing sensitive found.' : 'Paste or drop text, config, code or logs below.'}</span>}
+        {counts.length === 0 && <span className="muted small">{d.status === 'ready' ? (d.kind === 'image' ? 'No sensitive text found in the image. Check it yourself and cover anything else by dragging.' : 'Nothing sensitive found.') : d.kind === 'image' ? 'Reading the image…' : 'Paste or drop text, config, code or logs below, or paste a screenshot.'}</span>}
         {counts.map(([t, n]) => <span key={t} className="chip">{t} <b>{n}</b></span>)}
         {low.length > 0 && <button className={lowOnly ? 'chip warn on' : 'chip warn'} onClick={() => setLowOnly(!lowOnly)}>{low.length} to review (low confidence)</button>}
-        {res && (
+        {res && d.kind === 'text' && (
           <span className={res.guard.ok && res.skipped.length === 0 ? 'chip ok' : 'chip warn'} title={res.guard.issues.join('\n')}>
             {res.guard.checked ? 'Structure guard: ' : 'Structure guard: n/a (plain text) · '}
             {res.guard.ok ? (res.skipped.length ? `OK, ${res.skipped.length} skipped for review` : 'OK') : 'FAILED'}
@@ -183,8 +190,14 @@ export function MaskView(p: Props) {
         )}
       </div>
 
+      {!MEDIA && counts.some(([t]) => t === 'IMAGE') && (
+        <div className="notice">Embedded images are replaced by IMAGE_n placeholders. To send a redacted copy of them instead, open the text in airlock-media.html.</div>
+      )}
       {d.error && <div className="notice error">{d.error} <button className="link" onClick={() => p.onRetry(d.id)}>Detect again</button></div>}
 
+      {d.kind === 'image' ? (
+        <ImageReview d={d} settings={p.settings} sel={sel} setSel={setSel} ops={p.imageOps} onKeepOnce={p.onKeepOnce} onUnkeep={p.onUnkeep} />
+      ) : (
       <div className="cols">
         <section className={drag ? 'panel drop' : 'panel'} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
           <div className="panelhead">
@@ -232,11 +245,11 @@ export function MaskView(p: Props) {
             <h2>Masked output</h2>
             <div className="grow" />
             <span className="small muted" aria-live="polite">{copied}</span>
-            <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', res.output)}>Copy masked</button>
+            <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', p.outputOf(d))}>Copy masked</button>
             {p.docs.length > 1 && (
               <button
-                disabled={!p.docs.every((x) => !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
-                onClick={() => copy('Copied all', p.docs.filter((x) => x.text.trim()).map((x) => `=== ${x.name} ===\n${x.result?.output ?? ''}`).join('\n\n'))}
+                disabled={!p.docs.every((x) => x.kind !== 'text' || !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
+                onClick={() => copy('Copied all', p.docs.filter((x) => x.kind === 'text' && x.text.trim()).map((x) => `=== ${x.name} ===\n${p.outputOf(x)}`).join('\n\n'))}
               >
                 Copy all
               </button>
@@ -251,6 +264,7 @@ export function MaskView(p: Props) {
           )}
         </section>
       </div>
+      )}
 
       {all.length > 0 && (
         <section className="panel">

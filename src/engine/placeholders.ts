@@ -168,7 +168,7 @@ export function hostOf(doc: Doc, h: Hit): Host {
 const ALWAYS_FAKE_IN_CODE = new Set(['EMAIL']);
 const ALWAYS_FAKE = new Set(['IP', 'IPV6', 'MAC']);
 /** Valid inside paths without escaping, so never wrapped in brackets. */
-const BARE_ONLY = new Set(['USERNAME']);
+const BARE_ONLY = new Set(['USERNAME', 'IMAGE']);
 
 function words(type: string): string {
   return type

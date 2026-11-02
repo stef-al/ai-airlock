@@ -36,7 +36,14 @@ function tableCells(line: string, base: number): { s: number; e: number }[] {
   return cells;
 }
 
-export function segmentMarkdown(text: string, sub: SubSegmenter): Part {
+/** a separator row as OCR returns it: mostly dashes and pipes, a little noise */
+function looksLikeSep(l: string): boolean {
+  const ink = l.replace(/\s/g, '');
+  if (ink.length < 3 || !/-{2,}|—/.test(ink)) return false;
+  return (ink.match(/[-|:+=_~—–]/g) ?? []).length >= 0.8 * ink.length;
+}
+
+export function segmentMarkdown(text: string, sub: SubSegmenter, tolerant = false): Part {
   const b = new SegBuilder(text.length);
   const columns: Column[] = [];
   let errors = 0;
@@ -137,7 +144,12 @@ export function segmentMarkdown(text: string, sub: SubSegmenter): Part {
       continue;
     }
     // table
-    if (txt.includes('|') && li + 1 < lines.length && isTableSep(line(li + 1))) {
+    const pipes = (s: string) => (s.match(/\|/g) ?? []).length;
+    // OCR drops the |---|---| row: a header followed by rows with as many pipes is a table too
+    const bare = tolerant && /^\s*\|/.test(txt) && pipes(txt) >= 3 && li + 1 < lines.length && !isTableSep(line(li + 1)) && pipes(line(li + 1)) === pipes(txt) && (li === 0 || !/\|/.test(line(li - 1)));
+    // …or keeps a damaged one: dashes, pipes and a little noise
+    const damaged = tolerant && /^\s*\|/.test(txt) && pipes(txt) >= 3 && li + 1 < lines.length && looksLikeSep(line(li + 1));
+    if (txt.includes('|') && li + 1 < lines.length && (isTableSep(line(li + 1)) || bare || damaged)) {
       const hdr = tableCells(txt, L.s);
       const cols: Column[] = hdr.map((c, idx) => ({
         header: text.slice(c.s, c.e),
@@ -147,7 +159,7 @@ export function segmentMarkdown(text: string, sub: SubSegmenter): Part {
         cells: [],
       }));
       for (const c of hdr) b.add(c.s, c.e, 'key');
-      li += 2;
+      li += bare ? 1 : 2;
       while (li < lines.length && line(li).includes('|') && line(li).trim()) {
         const cells = tableCells(line(li), lines[li].s);
         cells.forEach((c, idx) => {

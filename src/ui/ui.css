@@ -75,3 +75,11 @@ code { font-family: var(--mono); font-size: 12.5px; background: var(--bg); paddi
 .settings .cols label { display: grid; gap: 4px; }
 mark.hl:focus-visible, .findings tr:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .out.stale { opacity: 0.55; }
+.imgview { display: flex; justify-content: center; }
+.imgcanvas { display: block; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); cursor: crosshair; touch-action: none; }
+.imgcanvas.stale { opacity: 0.55; }
+.reviewed { display: block; margin: 8px 0; font-size: 13px; }
+.report { margin: 6px 0 0; padding-left: 18px; }
+.report li { margin: 2px 0; }
+.oktext { color: #047857; }
+button.chip { cursor: pointer; }

@@ -100,6 +100,8 @@ const JWT_RE = rx(`${B}eyJ[A-Za-z0-9_-]{8,}\\.eyJ[A-Za-z0-9_-]{4,}\\.[A-Za-z0-9_
 const PEM_RE = rx(`-----BEGIN ((?:[A-Z0-9]+ ){0,3}PRIVATE KEY(?: BLOCK)?)-----`);
 const PUTTY_RE = rx(`PuTTY-User-Key-File-\\d: [\\s\\S]{0,12000}?Private-MAC: [0-9a-fA-F]+`);
 const URI_CRED = rx(`\\b([a-z][a-z0-9+.-]{1,24}):\\/\\/([^\\s:@/?#"'<>\\\\]{0,64}):([^\\s/"'<>\\\\]{1,200})@`, 'gi');
+// OCR puts a space before '@' now and then (user:Pa55word @host)
+const URI_CRED_OCR = rx(`\\b([a-z][a-z0-9+.-]{1,24}):\\/\\/([^\\s:@/?#"'<>\\\\]{0,64}):([^\\s/"'<>\\\\@]{1,200}) ?@`, 'gi');
 const ADO = rx(`(?<![A-Za-z0-9_])(?:password|pwd)\\s*=\\s*(?:"([^"\\n]*)"|'([^'\\n]*)'|\\{([^}\\n]*)\\}|([^;"'\\s]+))`, 'gi');
 const ADO_SIBLING = /(?:server|data source|host|initial catalog|database|user id|uid|integrated security|provider|driver|trusted_connection|addr|address)\s*=/i;
 const AUTH_HDR = rx(`\\bauthorization\\s*[:=]\\s*["']?\\s*(bearer|basic|token|digest|negotiate|ntlm|apikey|api-key)\\s+([A-Za-z0-9._~+/=-]{8,})`, 'gi');
@@ -122,6 +124,7 @@ interface Cli {
   reason: string;
   group: number;
 }
+const CURL_OCR = rx(`\\bcurl\\b[^\\n|;&]*?\\s(?:-u|--user)\\s+[^\\s:'"]+:\\s([^\\s'"]+)`, 'g');
 const CLI: Cli[] = [
   { re: rx(`\\b(?:mysql|mysqldump|mysqladmin|mysqlsh|mariadb|mariadb-dump|mysqlpump)\\b[^\\n|;&]*?\\s-p([^\\s'"-][^\\s'"]*)`, 'g'), reason: 'password attached to -p of a MySQL client', group: 1 },
   { re: rx(`\\bsshpass\\s+-p\\s*(?:'([^'\\n]+)'|"([^"\\n]+)"|([^\\s'"]+))`, 'g'), reason: 'password passed to sshpass -p', group: 0 },
@@ -206,7 +209,11 @@ export const secretsKnown: Detector = {
     if (lower.includes('eyj')) {
       for (const m of matches(JWT_RE, text)) {
         const head = b64urlJson(m[0].split('.')[0]) as Record<string, unknown> | null;
-        if (!head || typeof head !== 'object' || !('alg' in head || 'typ' in head || 'kid' in head)) continue;
+        if (!head || typeof head !== 'object' || !('alg' in head || 'typ' in head || 'kid' in head)) {
+          // OCR misreads a character or two, so the header no longer decodes: the shape still counts
+          if (ctx.ocr && m[0].length >= 40) out.push(mkHit(ID, 'JWT', m.index, m.index + m[0].length, 0.85, 'JSON Web Token shape (read by OCR, header not decoded)', 3, 'jwt-ocr'));
+          continue;
+        }
         out.push(mkHit(ID, 'JWT', m.index, m.index + m[0].length, 0.97, 'JSON Web Token (header.payload.signature)', 3, 'jwt'));
       }
     }
@@ -231,7 +238,7 @@ export const secretsKnown: Detector = {
 
     // credentials inside URIs: scheme://user:password@host
     if (text.includes('://')) {
-      for (const m of matches(URI_CRED, text)) {
+      for (const m of matches(ctx.ocr ? URI_CRED_OCR : URI_CRED, text)) {
         const r = groupRange(m, 3)!;
         const pw = m[3];
         const v = valueVerdict(decodeSafe(pw), { strength: 'strong', type: 'PASSWORD', quoted: false });
@@ -330,6 +337,13 @@ export const secretsKnown: Detector = {
       }
     }
 
+    // OCR puts a space after the colon of curl -u user:password
+    if (ctx.ocr && text.includes('curl')) {
+      for (const m of matches(CURL_OCR, text)) {
+        const g = groupRange(m, 1)!;
+        if (cleanSecret(m[1])) out.push(mkHit(ID, 'PASSWORD', g[0], g[1], 0.85, 'password in curl -u user: password (read by OCR)', 3, 'cli-ocr'));
+      }
+    }
     for (const c of CLI) {
       ctx.check();
       for (const m of matches(c.re, text)) {

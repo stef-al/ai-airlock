@@ -145,8 +145,8 @@ export const secretsEntropy: Detector = {
         reason = `random-looking value (${ent.toFixed(1)} bits/char) next to a secret-like name`;
       }
       if (!conf) continue;
-      // balanced: only with a cue; aggressive: also free-standing
-      if (rank < 2 && !(keyed || cueNear)) continue;
+      // balanced: only with a cue; aggressive: also free-standing (not in OCR text, where noise looks random)
+      if ((rank < 2 || ctx.ocr) && !(keyed || cueNear)) continue;
       out.push(mkHit(ID, 'SECRET', s, s + tok.length, conf, reason, 1, 'entropy'));
     }
     ctx.check();
@@ -162,7 +162,7 @@ export const secretsEntropy: Detector = {
         const cue = cueBefore(before) || /(?:\bpass|\bpw|\bpwd|\blogin|passwort|secret|credentials?)\W{0,20}$/i.test(before);
         const classes = charClasses(tok);
         if (classes < 3) continue;
-        if (!cue && (rank < 2 || !/[!@#$%^&*?+]/.test(tok))) continue;
+        if (!cue && (rank < 2 || ctx.ocr || !/[!@#$%^&*?+]/.test(tok))) continue;
         if (VERSION.test(tok) || isPlaceholderValue(tok)) continue;
         out.push(mkHit(ID, 'PASSWORD', s, s + tok.length, cue ? 0.8 : 0.55, `common password shape (${sh.label})${cue ? ' near a password cue' : ''}`, 1, 'shape'));
       }

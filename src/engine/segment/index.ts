@@ -188,6 +188,9 @@ function markdownScore(lines: string[]): number {
 
 function hasMarkdownTable(lines: string[]): boolean {
   for (let i = 0; i + 1 < lines.length; i++) if (lines[i].includes('|') && isTableSep(lines[i + 1])) return true;
+  // rows framed by pipes with the same number of cells (OCR drops the |---| row)
+  const pipes = (l: string) => (/^\s*\|.*\|\s*$/.test(l) ? (l.match(/\|/g) ?? []).length : 0);
+  for (let i = 0; i + 1 < lines.length; i++) if (pipes(lines[i]) >= 3 && pipes(lines[i]) === pipes(lines[i + 1])) return true;
   return false;
 }
 
@@ -280,7 +283,7 @@ function subSegment(code: string, info: string): Part | null {
   return segmentBy(code, fi.format, fi.lang);
 }
 
-export function segmentBy(text: string, format: Format, lang?: Lang): Part {
+export function segmentBy(text: string, format: Format, lang?: Lang, tolerant = false): Part {
   switch (format) {
     case 'json':
       return segmentJson(text);
@@ -297,7 +300,7 @@ export function segmentBy(text: string, format: Format, lang?: Lang): Part {
     case 'properties':
       return segmentKv(text, 'properties');
     case 'markdown':
-      return segmentMarkdown(text, subSegment);
+      return segmentMarkdown(text, subSegment, tolerant);
     case 'code':
       return segmentCode(text, lang ?? 'js');
     default:
@@ -309,6 +312,8 @@ export interface BuildOptions {
   format?: Format | 'auto';
   lang?: Lang;
   fileName?: string;
+  /** keep a sniffed structure despite parse errors (OCR text: the structure is right, characters are not) */
+  tolerant?: boolean;
 }
 
 export function buildDoc(text: string, opts: BuildOptions = {}): Doc {
@@ -322,11 +327,11 @@ export function buildDoc(text: string, opts: BuildOptions = {}): Doc {
   }
   let part: Part;
   try {
-    part = segmentBy(text, format, lang);
+    part = segmentBy(text, format, lang, !!opts.tolerant);
     // a guessed structure that does not parse is better treated as text than as a broken document
     const sniffed = !opts.format || opts.format === 'auto';
     const named = !!infoFromFileName(opts.fileName) && infoFromFileName(opts.fileName)!.format !== 'prose';
-    if (sniffed && !named && ((format === 'yaml' && part.errors > 0) || (format === 'json' && part.errors > 2) || (format === 'xml' && part.errors > 2))) {
+    if (sniffed && !named && !opts.tolerant && ((format === 'yaml' && part.errors > 0) || (format === 'json' && part.errors > 2) || (format === 'xml' && part.errors > 2))) {
       part = { segments: proseSegments(text.length), pairs: [], columns: [], errors: 0 };
       format = 'prose';
       lang = undefined;

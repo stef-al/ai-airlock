@@ -7,22 +7,30 @@ export class CancelledError extends Error {
   }
 }
 
-interface Job {
-  make: () => Req;
+interface Job<Q> {
+  make: () => Q;
   resolve: (v: never) => void;
   reject: (e: Error) => void;
   timeoutMs: number;
   /** runs synchronously before the next job is built (promise callbacks would run too late) */
   onResult?: (v: never) => void;
+  /** buffers handed over to the worker (no copy) */
+  transfer?: Transferable[];
 }
 
-/** Runs engine jobs one at a time in a Web Worker; cancelling terminates and respawns the worker. */
-class Client {
+/** Runs jobs one at a time in a Web Worker; cancelling terminates and respawns the worker. */
+export class Client<Q = Req> {
   private w: Worker | null = null;
   private seq = 0;
-  private queue: Job[] = [];
-  private running: { id: number; job: Job; timer: ReturnType<typeof setTimeout> } | null = null;
+  private queue: Job<Q>[] = [];
+  private running: { id: number; job: Job<Q>; timer: ReturnType<typeof setTimeout> } | null = null;
   private listeners = new Set<(busy: boolean) => void>();
+  /** workers started so far (state kept inside a worker is lost when it is replaced) */
+  spawns = 0;
+  constructor(private factory: () => Worker) {}
+  get alive(): boolean {
+    return this.w !== null;
+  }
 
   subscribe(f: (busy: boolean) => void): () => void {
     this.listeners.add(f);
@@ -33,10 +41,11 @@ class Client {
     this.listeners.forEach((f) => f(busy));
   }
 
-  call<T>(req: Req | (() => Req), opts: { timeoutMs?: number; onResult?: (v: T) => void } = {}): Promise<T> {
+  call<T>(req: Q | (() => Q), opts: { timeoutMs?: number; onResult?: (v: T) => void; transfer?: Transferable[] } = {}): Promise<T> {
     return new Promise<T>((resolve, reject) => {
       this.queue.push({
-        make: typeof req === 'function' ? req : () => req,
+        make: typeof req === 'function' ? (req as () => Q) : () => req,
+        transfer: opts.transfer,
         resolve: resolve as (v: never) => void,
         reject,
         timeoutMs: opts.timeoutMs ?? 120_000,
@@ -49,7 +58,8 @@ class Client {
 
   private spawn(): Worker {
     if (this.w) return this.w;
-    const w = new EngineWorker();
+    const w = this.factory();
+    this.spawns++;
     w.onmessage = (e: MessageEvent<Msg>) => {
       const r = this.running;
       if (!r || r.id !== e.data.id) return;
@@ -82,7 +92,7 @@ class Client {
     const timer = setTimeout(() => this.fail(new CancelledError('This took too long and was stopped.')), job.timeoutMs);
     this.running = { id, job, timer };
     try {
-      this.spawn().postMessage({ id, req: job.make() });
+      this.spawn().postMessage({ id, req: job.make() }, job.transfer ?? []);
     } catch (e) {
       this.fail(e as Error);
     }
@@ -117,4 +127,4 @@ class Client {
   }
 }
 
-export const engine = new Client();
+export const engine = new Client<Req>(() => new EngineWorker());

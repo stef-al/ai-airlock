@@ -20,7 +20,3 @@ export interface OcrResult {
   conf: number;
   words: OcrWord[];
 }
-
-export type OcrReq =
-  | { type: 'init'; wasm: Uint8Array; langs: { code: string; gz: Uint8Array }[] }
-  | { type: 'recognize'; image: Uint8Array };

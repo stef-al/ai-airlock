@@ -8,6 +8,8 @@ export const CAT_OF_TYPE: Record<string, Category> = {
   NATIONAL_ID: 'personal', USERNAME: 'personal', NINO: 'personal', BIRTH_NUMBER: 'personal', PESEL: 'personal',
   IBAN: 'financial', CARD: 'financial', CVV: 'financial', CARD_EXPIRY: 'financial',
   IP: 'network', IPV6: 'network', MAC: 'network', HOST: 'network',
+  // images: machine-readable zones of passports/IDs, faces, QR codes, embedded images, areas you mark
+  MRZ: 'personal', FACE: 'personal', SIGNATURE: 'personal', QR: 'custom', IMAGE: 'custom', AREA: 'custom',
 };
 
 export function mkHit(

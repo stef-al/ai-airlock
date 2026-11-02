@@ -51,7 +51,7 @@ export const czSkBirthNumber: IdPack = {
   re: /(?<![\d/+.])(\d{2})(\d{2})(\d{2})(\/?)(\d{3,4})(?![\d/])/g,
   cue: /(?:rodn[ée] [čc][ií]slo|r\.?[čc]\.?|birth number|rc)["'\s:#=.-]{0,8}$/i,
   keyCue: /^(?:rc|r[čc]|rodne[_ -]?cislo|rodné[_ -]?číslo|birth[_ -]?number|personal[_ -]?number)$/i,
-  validate(m, cue) {
+  validate(m, cue, ocr) {
     const tail = m[5];
     if (dummyDigits(m[1] + m[2] + m[3] + tail)) return null;
     const digits = 6 + tail.length;
@@ -65,7 +65,7 @@ export const czSkBirthNumber: IdPack = {
     const last = Number(tail[3]);
     const mod = n % 11;
     const ok = mod === last || (mod === 10 && last === 0);
-    if (!ok) return null;
+    if (!ok) return ocr && cue ? { conf: 0.6, reason: 'Czech/Slovak birth number shape next to a cue (read by OCR, checksum not verified)' } : null;
     return { conf: m[4] || cue ? 0.94 : 0.7, reason: 'Czech/Slovak birth number (valid date and mod-11 checksum)', needsCue: !m[4] && !cue };
   },
 };
@@ -77,12 +77,12 @@ export const plPesel: IdPack = {
   re: /(?<![\d.+])(\d{11})(?![\d.])/g,
   cue: /(?:pesel|nr pesel|numer pesel)["'\s:#=.-]{0,8}$/i,
   keyCue: /^(?:pesel|nr[_ -]?pesel|numer[_ -]?pesel)$/i,
-  validate(m, cue) {
+  validate(m, cue, ocr) {
     const d = m[1];
     if (dummyDigits(d)) return null;
     const w = [1, 3, 7, 9, 1, 3, 7, 9, 1, 3];
     const sum = w.reduce((a, x, i) => a + x * +d[i], 0);
-    if ((10 - (sum % 10)) % 10 !== +d[10]) return null;
+    if ((10 - (sum % 10)) % 10 !== +d[10]) return ocr && cue ? { conf: 0.6, reason: 'PESEL shape next to a cue (read by OCR, checksum not verified)' } : null;
     let month = +d.slice(2, 4);
     let year = 1900 + +d.slice(0, 2);
     if (month > 80) {

@@ -7,6 +7,8 @@ export interface AnalyzeReq {
   text: string;
   settings: Settings;
   fileName?: string;
+  /** text read from an image: OCR mode (its format is still sniffed) */
+  ocr?: boolean;
 }
 export interface AnalyzeRes {
   hits: Hit[];

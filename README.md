@@ -4,7 +4,7 @@ Mask sensitive data in text, code, config files and logs **before** you paste th
 
 **Flow:** paste or drop files → detection → review highlights → *Copy masked* … later: paste the reply → *Restore* → *Copy restored*.
 
-Open `dist/airlock.html` (build it with `npm run build`, or use the GitHub Pages site). It is one self-contained file and works from disk, a shared drive or Pages.
+Open `dist/airlock.html` (build it with `npm run build`, or use the GitHub Pages site). It is one self-contained file and works from disk, a shared drive or Pages. `dist/airlock-media.html` is the same app plus **images** (about 27 MB: it carries an OCR engine and its language data); PDF and Office files follow.
 
 ## What it detects
 | Category | Examples |
@@ -15,6 +15,13 @@ Open `dist/airlock.html` (build it with `npm run build`, or use the GitHub Pages
 | **Network** | IPv4/IPv6 (private ranges and localhost toggleable), MAC addresses, hostnames under configurable internal suffixes and company domains. |
 | **Custom** | Always-mask lists (clients, projects, products, employees; import from CSV/TXT, case-insensitive), your own regex rules with a live test box, and whole table columns classified by header and values (CSV and Markdown tables). |
 
+### Images (airlock-media.html)
+Drop or paste (Ctrl+V) screenshots and photos (PNG, JPEG, GIF, WebP, BMP); images embedded in pasted text (`data:` URIs in Markdown, HTML, JSON) are picked up too.
+- **Text in the image** is read by OCR (Tesseract; English, German, French, Spanish, Italian, Polish, Czech; Settings → Images) and goes through the same detection as text, tuned for OCR: the format is still recognised, a plain-text reading runs alongside, quotes OCR got wrong are repaired, a token wrapped at the right edge is followed onto the next line, card/IBAN/ID shapes next to a cue count even when one misread digit breaks the checksum.
+- **QR codes** are found, decoded and always covered; their content (2FA secrets, Wi-Fi passwords, links) is listed and can be restored like any value. **Passport and ID machine-readable zones** (MRZ) are found by their check digits.
+- **The redacted copy is a new file:** opaque boxes on the decoded pixels (never blur), each labelled with its placeholder so the chatbot can refer to it and *Restore* works on its reply, no metadata (EXIF GPS location, camera, author, XMP, PNG text), the first frame of an animation. The copy is then **read again by OCR**: wherever a masked value is still readable (a second mention nobody flagged, a glyph sticking out) it is covered too, and what is left is reported.
+- **You review every image** before copying it: correct values the OCR misread (the corrected value is what restore puts back) and drag to cover anything else. Faces, signatures, handwriting and logos are not found automatically yet.
+
 Structure is never changed: keys, tags, identifiers, CSV headers, operators and Markdown syntax are protected (`getPassword()`, `PASSWORD_MIN_LENGTH` and `password_hash` are not secrets). Placeholders are valid where they land: `[PASSWORD_1]` in prose and strings, `PASSWORD_1` in unquoted YAML/env/URLs, numbers stay numbers, emails become `user1@example.com`, IPs become `192.0.2.x` / `2001:db8::n`, hosts become `srvN.example.net`, identifiers become `Client1Service`. Format-preserving fakes randomise letters and digits but keep every other character, so they stay valid in URLs and shell words; redacting a JSON/YAML number gives `0`. After masking the output is re-parsed and compared with the original; a replacement that would break structure gets a safer placeholder or is skipped and flagged for review. If that check runs out of time (3 s), the remaining replacements are kept and the guard reports FAILED: an unmasked secret is worse than a broken bracket. Masked JSON and YAML are also checked against the real parsers in development (same shape and value types, every placeholder style).
 
 ## What it cannot do (honest limits)
@@ -24,11 +31,13 @@ Structure is never changed: keys, tags, identifiers, CSV headers, operators and 
 - Numeric placeholders (a PIN stored as a JSON number) are unique within an input; restore matches the bare digits, so an unrelated identical number in the AI's reply could be restored by mistake.
 - Pasted text has no file name, so its type is recognised from the content: env, properties, INI/TOML, YAML, JSON, JSON Lines, XML/HTML, CSV, Markdown, logs, mails and diffs, and the ten code languages. On real files from `node_modules` read without their names: JSON 79/79, TypeScript 118/118, shell 10/10, HTML 6/6, Markdown 73/76, JavaScript 190/205 (the misses are minified bundles). A sniffed YAML/JSON/XML document that does not parse is treated as text. A wrong guess can still hide cue-less secrets; a file name or a code fence removes the guess.
 - Chatbots may rewrite or drop placeholders. Restore accepts the usual changes (no brackets, backticks, other case, `-` or a space for `_`, markdown escapes such as `\[PASSWORD\_1\]`), and the report lists what did not come back and what the AI invented.
-- Files: UTF-8, UTF-16 with BOM (Windows PowerShell output) and, when a file is not valid UTF-8, the Windows code page of the browser language; up to 25 MB. No Office/PDF input, no OCR, no encrypted mapping file yet.
+- Files: UTF-8, UTF-16 with BOM (Windows PowerShell output) and, when a file is not valid UTF-8, the Windows code page of the browser language; up to 25 MB. No Office/PDF input and no encrypted mapping file yet.
+- **Images:** OCR misreads characters, so a value can be missed or restored with a wrong character (correct it in the review). Measured on the corpus rendered as screenshots (`npm run metrics:media`, spans counted when ≥ 98% covered): clean screenshots 94.8% of 291 labelled spans, monospace 94.2%, dark mode 94.5%, small text (12 px) 92.8%, photo-like (JPEG quality 60, rotated 1°, serif) 88.0%; about 3 s per image. Every value still readable in a redacted copy was one that detection missed: nothing that was masked could be read again. Misses are mostly names, tables whose header row the OCR damaged, and dates and MAC addresses in small or photographed text. Handwriting, signatures, faces, logos, stylised or tiny text (under about 10 px), non-Latin scripts and what a photo shows (a place, a screen in the background) are not found: review stays necessary.
 
 ## Privacy design
 - No backend, no external APIs, CDNs, web fonts, analytics or telemetry. Every dependency is bundled.
 - A strict Content-Security-Policy (`default-src 'none'`, `connect-src 'none'`, script and style allowed by hash, workers from `blob:` only) makes the browser refuse any request to another origin. `npm run build` fails if the file contains an external URL, a network primitive or a weaker policy, and `npm run smoke` proves in Chromium that `fetch` is blocked.
+- `airlock-media.html` allows one thing more: WebAssembly compilation (`'wasm-unsafe-eval'`, JavaScript `eval` stays blocked). The OCR engine, its language data, the PDF reader and the face model are embedded in the file as inert data blocks and handed to workers in memory; `connect-src 'none'` applies inside the workers too, and the smoke test checks that no request is made while it redacts images.
 - Detection runs in an inline Web Worker. Original values and the mapping live in memory only; the tab warns before closing while a mapping exists and *Forget everything* wipes it. Only settings, profiles and always-mask lists are stored (localStorage, unencrypted). Stored settings and imported profiles are checked field by field, so a damaged file cannot break detection.
 
 ## Configuration
@@ -39,6 +48,7 @@ The review panel works with the mouse and the keyboard (Tab to a highlight, Ente
 npm ci
 npm test          # unit tests + corpus (structure guard + byte-identical round trip on every fixture)
 npm run metrics   # precision / recall per category, detector and type  (-- --details --set=dev|holdout --strict --sniff)
+npm run metrics:media   # the corpus as screenshots in 5 styles through airlock-media.html (needs the build; -- --quick --details)
 npm run build     # typecheck + dist/airlock.html + dist/airlock-media.html (images/documents, in progress) + offline/CSP checks
 npm run smoke     # opens both files from file:// in Chromium (needs the build)
 ```

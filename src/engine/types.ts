@@ -78,8 +78,8 @@ export interface Hit {
   rule?: string;
   /** Scope of the segment where the hit starts (filled in by resolve). */
   scope?: SegScope;
-  /** Set by the user via the UI. */
-  user?: 'mask-once' | 'mask-always';
+  /** Set by the user via the UI ('region': an image area such as a QR code). */
+  user?: 'mask-once' | 'mask-always' | 'region';
 }
 
 export interface DetectorConfig {
@@ -91,6 +91,8 @@ export interface DetectorConfig {
 
 export interface RunCtx {
   settings: Settings;
+  /** the text was read from an image: a checksum can fail on one misread character */
+  ocr?: boolean;
   /** Throws when the job was cancelled (used by tests; the worker is terminated instead). */
   check(): void;
 }

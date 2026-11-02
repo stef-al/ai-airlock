@@ -70,35 +70,38 @@ export function infoFromFileName(name?: string): FormatInfo | null {
 const MONTH_LOG = /^\s*(?:\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}|\[\d{4}-\d{2}|\[?\d{2}:\d{2}:\d{2}|[A-Z][a-z]{2}\s+\d{1,2}\s\d{2}:\d{2}:\d{2}|\d{1,2}\/[A-Z][a-z]{2}\/\d{4})/;
 const LEVEL = /\b(?:TRACE|DEBUG|INFO|WARN(?:ING)?|ERROR|FATAL|SEVERE)\b/;
 
-/** Language signals: each distinct signal that occurs adds its weight once. */
+/**
+ * Language signals: each distinct signal that occurs adds its weight once. Line anchors are followed
+ * by [ \t]*, never \s*, which would run across newlines from every line start (quadratic).
+ */
 const LANG_SIGNALS: [Lang, RegExp, number][] = [
   ['bash', /^#!.*\b(?:ba|z|da|k)?sh\b/m, 6],
-  ['bash', /^\s*(?:sudo |apt(?:-get)? |yum |dnf |brew |docker |kubectl |helm |terraform |systemctl |chmod |chown |mkdir |rm -|cd |ls |echo |curl |wget |ssh |scp |git |npm |npx |pnpm |yarn |pip3? |mysql |psql |export \w+=)/m, 2],
-  ['bash', /^\s*(?:if \[\[? |for \w+ in |while \[|case .* in\s*$|fi\s*$|done\s*$|esac\s*$)/m, 3],
+  ['bash', /^[ \t]*(?:sudo |apt(?:-get)? |yum |dnf |brew |docker |kubectl |helm |terraform |systemctl |chmod |chown |mkdir |rm -|cd |ls |echo |curl |wget |ssh |scp |git |npm |npx |pnpm |yarn |pip3? |mysql |psql |export \w+=)/m, 2],
+  ['bash', /^[ \t]*(?:if \[\[? |for \w+ in |while \[|case .* in\s*$|fi\s*$|done\s*$|esac\s*$)/m, 3],
   ['bash', /\$\(|\$\{[A-Za-z_][A-Za-z0-9_]*(?::-[^}]*)?\}|\s&&\s|\s\|\|\s|\s2>&1/, 1],
   ['powershell', /\b(?:Write-Host|Write-Output|Write-Error|New-Object|Get-ChildItem|Get-Content|Set-Content|Set-ExecutionPolicy|Invoke-WebRequest|Invoke-Command|Invoke-RestMethod|ConvertTo-SecureString|Import-Module|Get-Item|Set-Item|Start-Process|Out-File|Remove-Item|Test-Path|Get-Process|Get-Service|Select-Object|Where-Object|ForEach-Object|Get-Secret|Get-Credential|New-PSSession)\b/, 4],
-  ['powershell', /\$env:\w+|\$PSScriptRoot|\$ErrorActionPreference|-ErrorAction\b|^\s*param\s*\(|\[Parameter\(|\[string\]\$|\[securestring\]/im, 3],
-  ['python', /^\s*(?:def \w+\(.*\)\s*(?:->\s*[\w[\], ]+)?:|class \w+(?:\(.*\))?:)\s*$/m, 4],
-  ['python', /^\s*(?:import [\w.]+(?: as \w+)?|from [\w.]+ import [\w*, ]+)\s*$/m, 3],
-  ['python', /^\s*(?:elif |if __name__ == |with open\(|try:\s*$|except(?: \w+)?(?: as \w+)?:\s*$)/m, 3],
+  ['powershell', /\$env:\w+|\$PSScriptRoot|\$ErrorActionPreference|-ErrorAction\b|^[ \t]*param\s*\(|\[Parameter\(|\[string\]\$|\[securestring\]/im, 3],
+  ['python', /^[ \t]*(?:def \w+\(.*\)\s*(?:->\s*[\w[\], ]+)?:|class \w+(?:\(.*\))?:)\s*$/m, 4],
+  ['python', /^[ \t]*(?:import [\w.]+(?: as \w+)?|from [\w.]+ import [\w*, ]+)\s*$/m, 3],
+  ['python', /^[ \t]*(?:elif |if __name__ == |with open\(|try:\s*$|except(?: \w+)?(?: as \w+)?:\s*$)/m, 3],
   ['python', /\bself\.\w+|\bprint\(|\bNone\b|\bTrue\b|\bFalse\b/, 1],
-  ['js', /^\s*(?:export\s+)?(?:const|let|var)\s+[\w${}[\], ]{1,120}=/m, 2],
+  ['js', /^[ \t]*(?:export\s+)?(?:const|let|var)\s+[\w${}[\], ]{1,120}=/m, 2],
   ['js', /\brequire\(['"]|\bmodule\.exports\b|\bexports\.\w+\s*=|\bconsole\.(?:log|error|warn|info)\(|\bdocument\.\w|\bwindow\.\w|\bprocess\.env\b/, 3],
-  ['js', /=>\s*[{(]|\bfunction\s*\*?\s*\w*\s*\(|^\s*import\s*(?:[\w*{][^'"\n]*?\s*from\s*)?['"]|^\s*export\s*(?:default\b|const\b|let\b|var\b|function\b|class\b|async\b|\{|\*)/m, 3],
+  ['js', /=>\s*[{(]|\bfunction\s*\*?\s*\w*\s*\(|^[ \t]*import\s*(?:[\w*{][^'"\n]*?\s*from\s*)?['"]|^[ \t]*export\s*(?:default\b|const\b|let\b|var\b|function\b|class\b|async\b|\{|\*)/m, 3],
   ['js', /\bawait\s+[\w.(]|===|!==|\bthis\.\w+|\bnew\s+(?:Promise|Map|Set|Error|Date)\b|\.then\(|\bundefined\b/, 1],
   ['js', /\bfetch\(|\baddEventListener\(|\bJSON\.(?:parse|stringify)\(|\bPromise\.\w+\(|\bsetTimeout\(|`[^`\n]{0,200}\$\{[^}\n]{1,80}\}[^`\n]{0,200}`/, 2],
   ['ts', /\binterface\s+\w+(?:<[^>{}\n]{0,200}>)?\s*(?:extends\s+[^{\n]{1,300})?\{|\btype\s+\w+(?:<[^=\n]{0,200}>)?\s*=[^=>]|\bas const\b|\bimplements\s+\w+|\b(?:public|private|protected|readonly)\s+\w+\??\s*:/, 3],
-  ['ts', /\bimport\s+type\b|\bexport\s+(?:declare|type|interface|enum|abstract)\b|^\s*declare\s+(?:const|let|function|class|module|namespace|global|type)\b|\w\??:\s*(?:string|number|boolean|void|unknown|any|never|bigint|undefined)(?:\[\])?\s*[;,)=|]/m, 3],
-  ['java', /^\s*package [\w.]+;\s*$/m, 4],
+  ['ts', /\bimport\s+type\b|\bexport\s+(?:declare|type|interface|enum|abstract)\b|^[ \t]*declare\s+(?:const|let|function|class|module|namespace|global|type)\b|\w\??:\s*(?:string|number|boolean|void|unknown|any|never|bigint|undefined)(?:\[\])?\s*[;,)=|]/m, 3],
+  ['java', /^[ \t]*package [\w.]+;\s*$/m, 4],
   ['java', /\bimport java\.|\bimport javax\.|\bimport org\.springframework|\bSystem\.out\.print|@Override|@Autowired|\bString\[\] args|\bpublic\s+(?:final\s+)?class\s+\w+(?:\s+extends|\s+implements|\s*\{)/, 3],
-  ['csharp', /^\s*using System(?:\.[\w.]+)?;\s*$/m, 4],
+  ['csharp', /^[ \t]*using System(?:\.[\w.]+)?;\s*$/m, 4],
   ['csharp', /\bnamespace\s+[\w.]+\s*(?:\{|;|$)|\bConsole\.Write(?:Line)?\(|\{\s*get;\s*(?:set;\s*)?\}|\bstring\[\] args|\basync Task\b|\[Http(?:Get|Post)|\bnew SqlConnection|\bvar\s+\w+\s*=\s*new\s+\w+/m, 3],
   ['go', /^package \w+\s*$/m, 4],
   ['go', /^func (?:\(\w+ \*?\w+\) )?\w+\(|\bfmt\.\w+\(|\b\w+\s*:=\s*|^import \($/m, 3],
   ['go', /^type \w+ (?:struct|interface) \{|`(?:json|yaml|xml|db|gorm|bson|mapstructure|toml|env):"[^"\n]*"/m, 4],
   ['php', /<\?php/, 6],
   ['php', /\$\w+\s*=\s*[^=]|->\w+\(|\barray\(|\becho\s+['"$]|\bfunction\s+\w+\s*\(\$/, 2],
-  ['sql', /^\s*(?:SELECT\b[\s\S]{0,400}?\bFROM\b|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(?:TABLE|USER|LOGIN|DATABASE|INDEX|VIEW|PROCEDURE)|ALTER\s+(?:USER|TABLE|LOGIN)|DROP\s+(?:TABLE|USER|DATABASE)|GRANT\s+\w+|REVOKE\s+\w+)/im, 5],
+  ['sql', /^[ \t]*(?:SELECT\b[\s\S]{0,400}?\bFROM\b|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+(?:TABLE|USER|LOGIN|DATABASE|INDEX|VIEW|PROCEDURE)|ALTER\s+(?:USER|TABLE|LOGIN)|DROP\s+(?:TABLE|USER|DATABASE)|GRANT\s+\w+|REVOKE\s+\w+)/im, 5],
 ];
 
 export function sniffLang(text: string): Lang | null {

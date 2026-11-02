@@ -1,14 +1,14 @@
 # AI Airlock: working notes
 
 Offline, browser-only masking of secrets/PII before pasting into AI chatbots, and restoring them in the reply.
-Deliverable: ONE file, `dist/airlock.html` (Vite + vite-plugin-singlefile, strict hash-based CSP, inline Web Worker).
+Deliverables: `dist/airlock.html` (text; Vite + vite-plugin-singlefile, strict hash-based CSP, inline Web Worker) and `dist/airlock-media.html` (`vite build --mode media`: adds images and documents; Tesseract OCR, pdf.js and BlazeFace run as WebAssembly/TF.js from assets embedded as inert base64 data blocks; its CSP adds only `'wasm-unsafe-eval'`). Work in progress: see the phases in the plan (spike done).
 
 ## Commands
 - `npm test`: vitest (unit tests + corpus: structure guard OK and mask→restore byte-identical on every fixture, with and without the file name; `tests/sniff.test.ts` = format detection of pasted snippets)
 - `npm run metrics [-- --details --set=dev|holdout --strict --sniff]`: precision/recall per category/detector/type on `tests/corpus` (`--sniff` ignores file names, as for pasted text)
-- `npm run build`: typecheck, bundle, then `scripts/check-dist.mjs` (single file, CSP, no network primitives)
-- `npm run smoke`: real Chromium opens `dist/airlock.html` from file:// (needs `npm run build` first)
-- `npm run dev`: dev server (no CSP)
+- `npm run build`: typecheck, both bundles, then `scripts/check-dist.mjs` (single files, CSP, data blocks, size budgets; network primitives: whole-file scan for the text file, module-level scan of our own code in `vite.config.ts` for both, vendor libraries excluded)
+- `npm run smoke`: real Chromium opens both files from file:// (needs `npm run build` first); `smoke-media.mjs` proves OCR/PDF/face model run with zero requests and zero CSP violations
+- `npm run dev` / `npm run dev:media`: dev servers (no CSP; media assets are served from node_modules)
 
 ## Tier 2 pieces
 - `detectors/names.ts` (person: cues, propagation, email-derived, lists from `data/names.generated.ts`), `orgs.ts`, `network.ts` (ip, mac, host), `personal.ts` (path usernames, DOB), `ids/` (national-ID packs: `packs.ts` + `index.ts`). Word lists that keep them quiet on ordinary words: `data/words.ts`.
@@ -24,6 +24,7 @@ Deliverable: ONE file, `dist/airlock.html` (Vite + vite-plugin-singlefile, stric
   - `restore.ts`: tolerant restore + report. `settings.ts`: defaults, presets, profile (de)serialisation.
 - `worker/`: thin wrapper (`engine.worker.ts`, imported with `?worker&inline`). Cancel = terminate and respawn (`ui/engineClient.ts`); jobs run one at a time and a mask job hands the session mapping to the next one through `onResult` (synchronously, before the next job is built). In `ui/App.tsx` every document change goes through `updateDocs` so `docsRef` is current before React re-renders. Settings from localStorage and imported profiles pass `sanitizeSettings`.
 - `ui/`: React. Imports only `engine/light.ts` (no detectors) so the main bundle stays small. No inline styles (CSP).
+- `media/` (media build only, loaded from `ui/main.tsx` when `import.meta.env.MODE === 'media'`): `assetList.ts` (what gets embedded), `assets.ts` (reads data blocks), `ocr.worker.ts` + `ocr.ts` (Tesseract core from bytes, per-character boxes), `pdf.ts` (pdf.js legacy build, fonts/WASM from memory), `faces.ts` (BlazeFace via TF.js CPU, weights in `vendor/blazeface/`). Never fetch anything: `connect-src 'none'` also applies inside workers.
 - `tests/corpus/*.fixture`: labelled inputs. `⟦TYPE:text⟧` marks expected spans, `{{aws:1}}` style macros expand to test-time generated tokens (`tests/tokens.ts`) so no realistic secret is ever committed. `#! set: holdout` fixtures were written before tuning.
 
 ## Detector interface (`engine/types.ts`)

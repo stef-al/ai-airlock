@@ -39,8 +39,8 @@ The review panel works with the mouse and the keyboard (Tab to a highlight, Ente
 npm ci
 npm test          # unit tests + corpus (structure guard + byte-identical round trip on every fixture)
 npm run metrics   # precision / recall per category, detector and type  (-- --details --set=dev|holdout --strict --sniff)
-npm run build     # typecheck + dist/airlock.html + offline/CSP checks
-npm run smoke     # opens dist/airlock.html from file:// in Chromium (needs the build)
+npm run build     # typecheck + dist/airlock.html + dist/airlock-media.html (images/documents, in progress) + offline/CSP checks
+npm run smoke     # opens both files from file:// in Chromium (needs the build)
 ```
 The name lists are generated from `@faker-js/faker` (MIT) by `scripts/gen-names.ts` (run by the npm `pre*` hooks). `.github/workflows/pages.yml` builds and publishes the file to GitHub Pages (`docs/deploy.yml` is a copy in case workflow files cannot be pushed). See `CLAUDE.md` for the architecture.
 

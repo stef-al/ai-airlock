@@ -243,7 +243,8 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     if (skip.has(val.s)) continue;
     const value = t.slice(val.s, val.e);
     // "user / pass: admin / secret": the first value is the user name, handled by the user/pass rule
-    if (!val.quoted && /^\s+[/|]\s+\S/.test(t.slice(val.e, val.e + 6))) continue;
+    // (on the same line: a table row below starts with a pipe too)
+    if (!val.quoted && /^[ \t]+[/|][ \t]+\S/.test(t.slice(val.e, val.e + 6))) continue;
     // sentences: "Password: please enter ..." in free text
     if (!val.quoted && (!structured || segAt(doc, val.s)?.scope !== 'config')) {
       const rest = t.slice(val.e, val.e + 24);

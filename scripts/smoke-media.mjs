@@ -2,8 +2,13 @@
 // Inputs are generated here (screenshots, a QR code, metadata), so nothing realistic is committed.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import { mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
+import { unzipSync, zipSync } from 'fflate';
 import { chromium } from 'playwright-core';
 import QRCode from 'qrcode';
 
@@ -64,6 +69,9 @@ await gen.setContent(`<html><head><title>Quarterly Ops Review</title></head><bod
 const textPdf = await gen.pdf({ format: 'A4' });
 await gen.setContent(`<body style="margin:0"><img src="data:image/png;base64,${scanShot}" style="width:100%"></body>`);
 const scanPdf = await gen.pdf({ format: 'A4' });
+await gen.setViewportSize({ width: 600, height: 60 });
+await gen.setContent(`<body style="margin:12px;font:16px Arial">password: ${dbPw} (staging)</body>`);
+const docShot = await gen.screenshot({ clip: { x: 0, y: 0, width: 520, height: 46 } });
 await gen.close();
 
 /** A one-page PDF encrypted with the standard security handler (RC4, 40 bits, revision 2). */
@@ -114,6 +122,26 @@ function lockedPdf(line, password) {
   const trailer = `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Encrypt 6 0 R /ID [<${id.toString('hex')}> <${id.toString('hex')}>] >>\nstartxref\n${size}\n%%EOF\n`;
   return Buffer.concat([...parts, Buffer.from(xref + trailer, 'latin1')]);
 }
+/** a small DOCX: a value split over runs, a picture, a comment, the author in the properties */
+function docx(paras, picture, author, comment) {
+  const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships" xmlns:wp="http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing" xmlns:a="http://schemas.openxmlformats.org/drawingml/2006/main" xmlns:pic="http://schemas.openxmlformats.org/drawingml/2006/picture"';
+  const R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships';
+  const P = 'http://schemas.openxmlformats.org/package/2006/relationships';
+  const esc = (t) => t.replace(/&/g, '&amp;').replace(/</g, '&lt;');
+  const p = (runs) => `<w:p>${[runs].flat().map((t) => `<w:r><w:t xml:space="preserve">${esc(t)}</w:t></w:r>`).join('')}</w:p>`;
+  const img = `<w:p><w:r><w:drawing><wp:inline><wp:extent cx="4572000" cy="400000"/><wp:docPr id="1" name="Picture 1"/><a:graphic><a:graphicData uri="http://schemas.openxmlformats.org/drawingml/2006/picture"><pic:pic><pic:nvPicPr><pic:cNvPr id="0" name="shot.png"/><pic:cNvPicPr/></pic:nvPicPr><pic:blipFill><a:blip r:embed="rIdImg"/><a:stretch><a:fillRect/></a:stretch></pic:blipFill><pic:spPr><a:xfrm><a:off x="0" y="0"/><a:ext cx="4572000" cy="400000"/></a:xfrm><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline></w:drawing></w:r></w:p>`;
+  const files = {
+    '[Content_Types].xml': `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Default Extension="png" ContentType="image/png"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/comments.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.comments+xml"/><Override PartName="/docProps/core.xml" ContentType="application/vnd.openxmlformats-package.core-properties+xml"/></Types>`,
+    '_rels/.rels': `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${P}"><Relationship Id="rId1" Type="${R}/officeDocument" Target="word/document.xml"/><Relationship Id="rId2" Type="${P}/metadata/core-properties" Target="docProps/core.xml"/></Relationships>`,
+    'docProps/core.xml': `<?xml version="1.0" encoding="UTF-8"?><cp:coreProperties xmlns:cp="http://schemas.openxmlformats.org/package/2006/metadata/core-properties" xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:creator>${esc(author)}</dc:creator></cp:coreProperties>`,
+    'word/_rels/document.xml.rels': `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="${P}"><Relationship Id="rIdImg" Type="${R}/image" Target="media/image1.png"/><Relationship Id="rIdC" Type="${R}/comments" Target="comments.xml"/></Relationships>`,
+    'word/document.xml': `<?xml version="1.0" encoding="UTF-8"?><w:document ${W}><w:body>${paras.map(p).join('')}${img}</w:body></w:document>`,
+    'word/comments.xml': `<?xml version="1.0" encoding="UTF-8"?><w:comments ${W}><w:comment w:id="0" w:author="${esc(author)}" w:initials="JE">${p([comment])}</w:comment></w:comments>`,
+  };
+  const enc = new TextEncoder();
+  return Buffer.from(zipSync({ ...Object.fromEntries(Object.entries(files).map(([k, v]) => [k, enc.encode(v)])), 'word/media/image1.png': new Uint8Array(picture) }));
+}
+const docToken = ['Hq3', 'Rt8', 'Wn2', 'Lp5', 'Zx7'].join('');
 const lockedPw = ['Vq8', 'Ns3', 'Kd5'].join('');
 const locked = lockedPdf(`password: ${lockedPw}`, 'open-sesame');
 
@@ -218,13 +246,42 @@ await page.getByLabel('PDF password').fill('open-sesame');
 await page.getByRole('button', { name: 'Open', exact: true }).click();
 if (!(await pdfDone('locked.pdf')).includes(lockedPw)) await fail('locked.pdf: the password in it was not found');
 
+// a Word file: text masked in its XML, its picture redacted as an image document of its own
+await page.locator('input[type=file][multiple]').setInputFiles([{ name: 'notes.docx', mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', buffer: docx(['Release notes', ['api_tok', 'en = ' + docToken.slice(0, 6), docToken.slice(6)], 'Contact ops@acme.io for access.'], docShot, 'Jane Example', 'rotate ' + docToken) }]);
+await page.getByRole('button', { name: 'notes.docx', exact: true }).click();
+await page.waitForSelector('.out mark.ph', { timeout: 30000 });
+const docMasked = await page.locator('.out').innerText();
+if (docMasked.includes(docToken) || !/api_token = \[/.test(docMasked) || !docMasked.includes('=== Comments ===')) await fail('notes.docx masked text:\n' + docMasked);
+if (!/Authors of comments and changes renamed: Jane Example → Author 1/.test(await page.locator('ul.report').innerText())) await fail('notes.docx report: ' + (await page.locator('ul.report').innerText()));
+if (!(await done('notes.docx › image1.png')).includes(dbPw)) await fail('the picture in notes.docx: password not found');
+await page.locator('.reviewed input').check();
+await page.getByRole('button', { name: 'notes.docx', exact: true }).click();
+await page.getByRole('button', { name: 'image1.png ✓' }).waitFor({ timeout: 10000 });
+const [dl] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download redacted copy' }).click()]);
+if (dl.suggestedFilename() !== 'notes-redacted.docx') await fail('docx download name ' + dl.suggestedFilename());
+const docOut = readFileSync(await dl.path());
+const docParts = unzipSync(new Uint8Array(docOut));
+const docXml = Object.entries(docParts).filter(([n]) => /\.(?:xml|rels)$/.test(n)).map(([, b]) => new TextDecoder().decode(b)).join('\n');
+if (docXml.includes(docToken) || docXml.includes('Jane Example') || docXml.includes('ops@acme') || !docXml.includes('Author 1')) await fail('notes-redacted.docx still holds a masked value or the author');
+// LibreOffice opens the copy (when it is installed)
+try {
+  const dir = mkdtempSync(join(tmpdir(), 'smoke-docx-'));
+  writeFileSync(join(dir, 'copy.docx'), docOut);
+  execFileSync('soffice', ['--headless', '--convert-to', 'txt:Text', '--outdir', dir, join(dir, 'copy.docx')], { stdio: 'ignore', timeout: 120000 });
+  const txt = readFileSync(join(dir, 'copy.txt'), 'utf8');
+  if (!/api_token = \[/.test(txt) || txt.includes(docToken)) await fail('LibreOffice reads the copy as:\n' + txt);
+} catch (e) {
+  if (!/ENOENT/.test(String(e))) await fail('LibreOffice could not open the copy: ' + e);
+}
+
 // the copies: OCR (in the self-test page) must not read the masked values any more
 const check = await browser.newPage();
 await check.goto(FILE + '#selftest');
 await check.waitForFunction(() => !!globalThis.__airlockSelfTest, null, { timeout: 30000 });
 const masked = /4539 ?5787|ops@acme|jane\.doe/;
-for (const o of [out1, out2]) {
+for (const o of [out1, out2, { label: 'picture in the Word copy', bytes: Buffer.from(docParts['word/media/image1.png']) }]) {
   const text = await check.evaluate((b) => globalThis.__airlockSelfTest.readText(b), o.bytes.toString('base64'));
+  if (text.includes(dbPw)) await fail(`${o.label} still shows a masked value:\n${text}`);
   if (text.includes(secret) || masked.test(text)) await fail(`${o.label} copy still shows a masked value:\n${text}`);
 }
 for (const [o, pages] of [[out3, 2], [out4, 1]]) {
@@ -266,5 +323,5 @@ if (inWorker !== 'blocked') await fail('fetch from a worker was not blocked: ' +
 const unexpected = problems.filter((x) => !/https:\/\/example\.com\/.*(?:Refused to connect|Content Security Policy)|Refused to connect to 'https:\/\/example\.com/.test(x));
 if (unexpected.length) await fail('console problems (CSP violations show here):\n' + unexpected.join('\n'));
 
-console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | text PDF (text layer + screenshot), scanned PDF and a PDF with a password: image-only copies without text or metadata, nothing readable | restore of box labels and PDF placeholders | face model loads | no requests, no CSP violations');
+console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | text PDF (text layer + screenshot), scanned PDF and a PDF with a password: image-only copies without text or metadata, nothing readable | Word file masked in place, its picture redacted, author renamed, opens in LibreOffice | restore of box labels and PDF placeholders | face model loads | no requests, no CSP violations');
 await browser.close();

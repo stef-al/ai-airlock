@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type Rea
 import type { Hit, Settings } from '../engine/light';
 import { ImageReview, type ImageOps } from './ImageReview';
 import { MEDIA } from './media';
+import { OfficeReview, type OfficeOps } from './OfficeReview';
 import { PdfReview, type PdfOps } from './PdfReview';
 import { hitKey, selectedHits, type DocState } from './types';
 import { copyText } from './util';
@@ -26,6 +27,7 @@ interface Props {
   onCancel(): void;
   imageOps: ImageOps;
   pdfOps: PdfOps;
+  officeOps: OfficeOps;
   /** masked text to copy (embedded images swapped for their redacted copy) */
   outputOf(d: DocState): string;
 }
@@ -176,7 +178,7 @@ export function MaskView(p: Props) {
         <div className="grow" />
         {p.busy && <button onClick={p.onCancel}>Cancel</button>}
         <span className="small muted">
-          {d.pdf?.progress ? d.pdf.progress : d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.kind === 'pdf' ? (d.pdf?.inv ? `PDF, ${d.pdf.inv.pages} page${d.pdf.inv.pages === 1 ? '' : 's'}` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
+          {d.pdf?.progress ? d.pdf.progress : d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.kind === 'pdf' ? (d.pdf?.inv ? `PDF, ${d.pdf.inv.pages} page${d.pdf.inv.pages === 1 ? '' : 's'}` : '') : d.kind === 'office' ? (d.office?.file ? `${{ docx: 'Word', pptx: 'PowerPoint', xlsx: 'Excel' }[d.office.file.kind]} file` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
         </span>
       </div>
 
@@ -188,12 +190,16 @@ export function MaskView(p: Props) {
                 ? 'No sensitive text found in the image. Check it yourself and cover anything else by dragging.'
                 : d.kind === 'pdf'
                   ? 'No sensitive text found in the PDF. Check the pages yourself and cover anything else by dragging.'
-                  : 'Nothing sensitive found.'
+                  : d.kind === 'office'
+                    ? 'No sensitive text found in the file. Its pictures are checked one by one.'
+                    : 'Nothing sensitive found.'
               : d.kind === 'image'
                 ? 'Reading the image…'
                 : d.kind === 'pdf'
                   ? d.pdf?.locked ? 'The PDF needs its password.' : 'Reading the PDF…'
-                  : 'Paste or drop text, config, code or logs below, or paste a screenshot or a PDF.'}
+                  : d.kind === 'office'
+                    ? 'Reading the file…'
+                    : 'Paste or drop text, config, code or logs below, or paste a screenshot or a PDF.'}
           </span>
         )}
         {counts.map(([t, n]) => <span key={t} className="chip">{t} <b>{n}</b></span>)}
@@ -221,9 +227,9 @@ export function MaskView(p: Props) {
           <div className="panelhead">
             <h2>Original</h2>
             <div className="grow" />
-            {d.text && <button onClick={() => p.onEditing(d.id, !d.editing)}>{d.editing ? 'Review highlights' : 'Edit text'}</button>}
+            {d.text && d.kind === 'text' && <button onClick={() => p.onEditing(d.id, !d.editing)}>{d.editing ? 'Review highlights' : 'Edit text'}</button>}
           </div>
-          {d.editing || !d.text ? (
+          {d.kind === 'text' && (d.editing || !d.text) ? (
             <textarea
               className="editor"
               aria-label="Text to mask"
@@ -236,7 +242,7 @@ export function MaskView(p: Props) {
           ) : (
             <pre className="review" onMouseUp={onMouseUp}>{reviewNodes}</pre>
           )}
-          {totalMore && !d.editing && <button className="more" onClick={() => setLimit(limit + 2000)}>Show more lines ({Math.round((100 * end) / text.length)}% shown; the masked output always covers everything)</button>}
+          {totalMore && (!d.editing || d.kind !== 'text') && <button className="more" onClick={() => setLimit(limit + 2000)}>Show more lines ({Math.round((100 * end) / text.length)}% shown; the masked output always covers everything)</button>}
           {range && !d.editing && (
             <div className="selbar">
               <span className="mono">“{text.slice(range.start, range.end).slice(0, 40)}”</span>
@@ -283,6 +289,8 @@ export function MaskView(p: Props) {
         </section>
       </div>
       )}
+
+      {d.kind === 'office' && d.office && <OfficeReview d={d} ops={p.officeOps} fresh={fresh} />}
 
       {all.length > 0 && (
         <section className="panel">

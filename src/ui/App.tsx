@@ -4,6 +4,7 @@ import type { Box } from '../media/ocrTypes';
 import type { AnalyzeRes, MaskRes } from '../worker/protocol';
 import { CancelledError, engine } from './engineClient';
 import type { ImageOps } from './ImageReview';
+import type { OfficeOps } from './OfficeReview';
 import type { PdfOps } from './PdfReview';
 import { MaskView } from './MaskView';
 import { loadMedia, MEDIA } from './media';
@@ -69,9 +70,10 @@ export function App() {
       const ver = d.ver;
       try {
         const image = d.kind === 'image';
+        const office = d.office?.file ? (await loadMedia()).officeAnalyzeOptions(d.office.file.kind) : null;
         const res = await engine.call<AnalyzeRes>({
           type: 'analyze', docKey: id, text: d.text, settings: settingsRef.current,
-          ...(image || d.pdf?.usedOcr ? { ocr: true } : d.kind === 'pdf' ? {} : { fileName: d.name === 'pasted text' ? undefined : d.name }),
+          ...(image || d.pdf?.usedOcr ? { ocr: true } : d.kind === 'pdf' ? {} : office ?? { fileName: d.name === 'pasted text' ? undefined : d.name }),
         });
         const cur = docsRef.current.find((x) => x.id === id);
         if (!cur || cur.ver !== ver) return;
@@ -124,11 +126,39 @@ export function App() {
     [patch, patchPdf, updateDocs],
   );
 
+  /**
+   * An Office file: scrubbed and read (text with its place in the XML); its pictures become image
+   * documents of their own whose redacted copies go into the copy of the file.
+   */
+  const runReadOffice = useCallback(
+    async (id: string) => {
+      const d = docsRef.current.find((x) => x.id === id);
+      if (!d?.office) return;
+      patch(id, { status: 'analyzing', error: undefined, result: undefined });
+      try {
+        const m = await loadMedia();
+        const r = await m.readOffice(d.office.bytes);
+        const children: DocState[] = r.pictures.map((pic) => ({ ...newDoc(`${d.name} › ${pic.name}`), kind: 'image', editing: false, status: 'analyzing', image: m.newImageState(pic.bytes), parent: { id, key: pic.path } }));
+        updateDocs((ds) => [
+          ...ds.filter((c) => c.parent?.id !== id).map((x) => (x.id === id && x.office ? { ...x, office: { ...x.office, ...r }, text: r.file.text.text, ver: x.ver + 1, keep: [], extra: [] } : x)),
+          ...children,
+        ]);
+        children.forEach((c) => void runReadRef.current(c.id));
+        scheduleAnalyzeRef.current(id, 0);
+      } catch (e) {
+        patch(id, { status: 'error', error: 'Reading the file failed: ' + (e as Error).message });
+      }
+    },
+    [patch, updateDocs],
+  );
+  const runReadRef = useRef<(id: string) => Promise<void>>(async () => {});
+
   /** OCR of an image document; its text then goes through the usual analysis. */
   const runRead = useCallback(
     async (id: string) => {
       const d = docsRef.current.find((x) => x.id === id);
       if (d?.pdf) return runReadPdf(id);
+      if (d?.office) return runReadOffice(id);
       if (!d?.image) return;
       patch(id, { status: 'analyzing', error: undefined, result: undefined, image: { ...d.image, out: undefined } });
       try {
@@ -142,8 +172,9 @@ export function App() {
         else patch(id, { status: 'error', error: 'Reading the image failed: ' + (e as Error).message });
       }
     },
-    [patch, updateDocs, runReadPdf],
+    [patch, updateDocs, runReadPdf, runReadOffice],
   );
+  runReadRef.current = runRead;
   const scheduleAnalyzeRef = useRef<(id: string, delay?: number) => void>(() => {});
 
   /**
@@ -288,7 +319,7 @@ export function App() {
       for (const d of docsRef.current) {
         if (d.pdf?.locked) continue;
         if ((d.image && d.image.readKey !== readKey) || (d.pdf && d.pdf.readKey !== pdfKey)) void runRead(d.id);
-        else if (d.text.trim() || d.image || d.pdf) scheduleAnalyze(d.id, 0);
+        else if (d.text.trim() || d.image || d.pdf || d.office) scheduleAnalyze(d.id, 0);
       }
     }, 400);
     return () => clearTimeout(t);
@@ -331,6 +362,9 @@ export function App() {
       } else if (r.kind === 'pdf') {
         d.kind = 'pdf';
         d.pdf = (await loadMedia()).newPdfState(r.bytes);
+      } else if (r.kind === 'office') {
+        d.kind = 'office';
+        d.office = (await loadMedia()).newOfficeState(r.bytes);
       }
       added.push(d);
     }
@@ -341,7 +375,7 @@ export function App() {
       return [...base, ...added];
     });
     setActiveId(added[0].id);
-    added.forEach((d) => (d.image || d.pdf ? void runRead(d.id) : scheduleAnalyze(d.id, 0)));
+    added.forEach((d) => (d.image || d.pdf || d.office ? void runRead(d.id) : scheduleAnalyze(d.id, 0)));
   };
   const addFilesRef = useRef(addFiles);
   addFilesRef.current = addFiles;
@@ -427,6 +461,36 @@ export function App() {
     },
   };
 
+  /** pictures of an Office file: their child documents, and whether each one is ready for the copy */
+  const officePictures = (d: DocState) =>
+    (d.office?.pictures ?? []).map((pic) => {
+      const child = docsRef.current.find((c) => c.parent?.id === d.id && c.parent.key === pic.path);
+      const img = child?.image;
+      const fresh = !!child && !!img?.out && !img.rendering && child.status === 'ready' && child.maskedVer === child.mver;
+      return { pic, child, ready: fresh && (settingsRef.current.options.imgReview === false || !!img?.reviewed) };
+    });
+  const officeOps: OfficeOps = {
+    pictures: officePictures,
+    open: (id) => setActiveId(id),
+    download: async (d) => {
+      const res = d.result;
+      if (!d.office || !res) return;
+      const pics = officePictures(d);
+      if (pics.some((p) => !p.ready)) return setNotice('Every picture of the file has to be redacted (and reviewed) first.');
+      try {
+        const m = await loadMedia();
+        const images = new Map(pics.map(({ pic, child }) => [pic.path, { bytes: child!.image!.out!.bytes, mime: child!.image!.out!.mime, width: child!.image!.width, height: child!.image!.height }]));
+        const bytes = m.officeCopy(d.office, res, images);
+        const kind = d.office.file?.kind ?? 'docx';
+        const ext = /\.(\w+)$/.exec(d.name)?.[1] ?? kind;
+        const base = d.name.replace(/\.[^./]+$/, '').replace(/[^\w.-]+/g, '-') || 'document';
+        downloadBytes(`${base}-redacted.${ext}`, bytes, m.OFFICE_MIME[kind]);
+      } catch (e) {
+        setNotice('The copy could not be made: ' + (e as Error).message);
+      }
+    },
+  };
+
   const stopMedia = (why: string) =>
     MEDIA &&
     void loadMedia().then((m) => {
@@ -486,6 +550,7 @@ export function App() {
           busy={busy || mediaBusy}
           imageOps={imageOps}
           pdfOps={pdfOps}
+          officeOps={officeOps}
           outputOf={outputOf}
           settings={settings}
           onSelect={setActiveId}
@@ -500,7 +565,8 @@ export function App() {
           onRemove={(id) => {
             closePdfs(docsRef.current.filter((d) => d.id === id));
             updateDocs((ds) => {
-              const rest = ds.filter((d) => d.id !== id);
+              // the pictures of a file go with it
+              const rest = ds.filter((d) => d.id !== id && d.parent?.id !== id);
               if (!rest.length) rest.push(newDoc());
               return rest;
             });
@@ -572,7 +638,7 @@ function About() {
       <h2>Limits</h2>
       <ul>
         <li>Detection is rule-based. It cannot know that an ordinary word is a secret or a name unless a cue, a format or your lists say so. Always read the masked text before pasting.</li>
-        <li>Names and organisations without cues, postal addresses, and Office files are not covered yet. Images and PDF files need airlock-media.html.</li>
+        <li>Names and organisations without cues and postal addresses are not covered yet. Images, PDF and Office files need airlock-media.html.</li>
         <li>Chatbots may rewrite or drop placeholders; the restore report lists what did not come back.</li>
       </ul>
     </section>

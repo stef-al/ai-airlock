@@ -166,10 +166,13 @@ export function classifyColumn(col: Column, text: string, settings: Settings): {
   if (CLIENT_H.test(h)) return { type: 'CLIENT', conf: 0.9, why: 'header' };
   if (PERSON_H.test(h)) return { type: 'PERSON', conf: 0.9, why: 'header' };
   if (/^(?:name|nom|nombre|nazwa|jméno|contact|kontakt|contacto|ansprechpartner(?:in)?)$/i.test(h) && frac((v) => PERSONISH.test(v)) >= 0.7 && sample.length >= 2) return { type: 'PERSON', conf: 0.75, why: 'header "name" and person-like values' };
+  const isCard = (v: string) => luhn(v.replace(/\D/g, '')) && !!cardBrand(v.replace(/\D/g, ''));
+  // a header that only says "card" (Card, Cards, Firmenkarte…) needs values that are card numbers
+  if (/card|karte|carte|tarjeta|karta/i.test(h) && frac(isCard) >= 0.5) return { type: 'CARD', conf: 0.9, why: 'header and card numbers' };
   if (sample.length >= 2) {
     if (frac(isEmail) >= 0.7) return { type: 'EMAIL', conf: 0.85, why: 'values' };
     if (frac(ibanValid) >= 0.7) return { type: 'IBAN', conf: 0.9, why: 'values' };
-    if (frac((v) => luhn(v.replace(/\D/g, '')) && !!cardBrand(v.replace(/\D/g, ''))) >= 0.7) return { type: 'CARD', conf: 0.88, why: 'values' };
+    if (frac(isCard) >= 0.7) return { type: 'CARD', conf: 0.88, why: 'values' };
   }
   return null;
 }

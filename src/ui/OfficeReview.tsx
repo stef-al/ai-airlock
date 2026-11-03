@@ -3,7 +3,7 @@ import type { DocState } from './types';
 
 export interface OfficeOps {
   /** the file's pictures, their image documents and whether each one is ready for the copy */
-  pictures(d: DocState): { pic: OfficePicture; child?: DocState; ready: boolean }[];
+  pictures(d: DocState): { pic: OfficePicture; child?: DocState; ready: boolean; removed: boolean }[];
   open(id: string): void;
   download(d: DocState): void;
 }
@@ -32,8 +32,8 @@ export function OfficeReview({ d, ops, fresh }: { d: DocState; ops: OfficeOps; f
         <div className="small">
           {pics.length} picture{pics.length > 1 ? 's' : ''}, each redacted as an image{pending.length ? `: ${pending.length} still to redact or review` : ': all ready'}.{' '}
           {pics.map((p) => (
-            <button key={p.pic.path} className={p.ready ? 'chip ok' : 'chip warn'} disabled={!p.child} onClick={() => p.child && ops.open(p.child.id)}>
-              {p.pic.name} {p.ready ? '✓' : '…'}
+            <button key={p.pic.path} className={p.ready ? 'chip ok' : 'chip warn'} disabled={!p.child} onClick={() => p.child && ops.open(p.child.id)} title={p.removed ? 'removed: a blank takes its place in the copy' : undefined}>
+              {p.pic.name} {p.removed ? '(blank)' : p.ready ? '✓' : '…'}
             </button>
           ))}
         </div>

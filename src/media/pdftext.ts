@@ -4,6 +4,7 @@
 // contents of annotations and QR codes. Pure: no DOM, no pdf.js.
 import { faceRegion, HEAD, ocrText, TAIL, type OcrText } from './ocrdoc';
 import type { Box, OcrWord } from './ocrTypes';
+import { letters } from '../engine/segment/tables';
 
 /** A text item of pdf.js getTextContent(), placed on the page. */
 export interface LayerItem {
@@ -119,17 +120,18 @@ const letter = (ch: string) => /\p{L}/u.test(ch);
  *   the end of a statement or a tag), or when enough candidates of a column do: then the text was
  *   printed breaking anywhere.
  */
-function softWraps(lines: Line[], strs: string[]): boolean[] {
+function softWraps(lines: Line[], strs: string[], table: boolean[]): boolean[] {
   const no = lines.map(() => false);
   if (lines.length < 2) return no;
-  const endX = lines.map((l) => (upright(lastOf(l)) ? lastOf(l).box[2] : NaN));
+  // table rows are never wrapped lines, and their width says nothing about the text column
+  const endX = lines.map((l, i) => (upright(lastOf(l)) && !table[i] ? lastOf(l).box[2] : NaN));
   const edge = Math.max(0, ...endX.filter((x) => !Number.isNaN(x)));
   const atEdge = lines.map((l, i) => !Number.isNaN(endX[i]) && edge - endX[i] <= lastOf(l).fh);
   const column = atEdge.filter(Boolean).length >= 3;
-  const startX = lines.map((l) => (upright(l.parts[0].p) ? l.parts[0].p.o[0] : NaN));
+  const startX = lines.map((l, i) => (upright(l.parts[0].p) && !table[i] ? l.parts[0].p.o[0] : NaN));
   const left = Math.min(...startX.filter((x) => !Number.isNaN(x)));
   const candidate = lines.map((l, i) => {
-    if (i === 0 || !atEdge[i - 1]) return false;
+    if (i === 0 || !atEdge[i - 1] || table[i]) return false;
     const prev = lastOf(lines[i - 1]);
     const cw = prev.w / Math.max(1, prev.item.str.length);
     const a = strs[i - 1];
@@ -147,14 +149,18 @@ function softWraps(lines: Line[], strs: string[]): boolean[] {
     const alnum = (ch: string) => /[\p{L}\d]/u.test(ch);
     // never across structure: a line that ends with > } ; " or a next one that starts with < { [ #
     if (/[>}\]);"'`|]/.test(x) || /[<{[(#"'`|]/.test(y)) return false;
-    return (
+    // a capitalised word starts a new sentence or a new row (…acme.com | Grafana, J3nkins#Prod | See)
+    if (/^\p{Lu}\p{Ll}+[,.;:!?]?$/u.test(head)) return false;
+    const sure =
       // digits or token punctuation on both sides (10.|0.0.5, 3815|0982, Pw#|31)
       (!letter(x) && !letter(y) && (/\d/.test(x + y) || /[-_./:=+%~]/.test(x))) ||
       (alnum(x) && /^[=:/@._,&?#-]\S/.test(b)) ||
-      (/\d/.test(tail + head) && tail.length >= 6 && head.length >= 2) ||
       // inside an email, URL, path or assignment (globex-c|orp.net, Passwor|d=)
-      (alnum(x) && alnum(y) && /[@/\\_=]/.test(tail.slice(1)))
-    );
+      (alnum(x) && alnum(y) && /[@/\\_=]/.test(tail.slice(1)));
+    // digits around the break are weaker evidence: only where several lines end at the edge, or a long token
+    const digits = /\d/.test(tail + head) && tail.length >= 6 && head.length >= 2;
+    const long = tail.length >= 16 && head.length >= 8 && /\d/.test(tail) && /\d/.test(head);
+    return sure || (column ? digits : long);
   });
   const sure = midToken.filter(Boolean).length;
   const all = candidate.filter(Boolean).length;
@@ -163,14 +169,128 @@ function softWraps(lines: Line[], strs: string[]): boolean[] {
   return anywhere ? candidate.map((c, i) => midToken[i] || (c && !(/[.!?]$/.test(strs[i - 1]) && /^\p{Lu}/u.test(strs[i])))) : midToken;
 }
 
+/** a jump of at least this many font heights between two items of a line separates table cells */
+const CELL_GAP = 1;
+
+interface Cell {
+  parts: Line['parts'];
+  x0: number;
+  x1: number;
+}
+
+/**
+ * The cells of a line of upright proportional text: it is split where the text jumps by a font
+ * height or more (pdf.js marks such a jump with a wide whitespace item).
+ */
+function cellsOf(l: Line): Cell[] {
+  if (!l.parts.every(({ p }) => upright(p) && !mono(p))) return [];
+  const cells: Cell[] = [];
+  let cur: Cell | null = null;
+  let end = -Infinity;
+  for (const part of l.parts) {
+    const { p } = part;
+    if (!p.item.str.trim()) {
+      if (p.w >= CELL_GAP * p.fh) cur = null;
+      else if (cur) cur.parts.push(part);
+    } else {
+      if (cur && p.o[0] - end >= CELL_GAP * p.fh) cur = null;
+      if (cur) {
+        cur.parts.push(part);
+        cur.x1 = p.box[2];
+      } else {
+        cur = { parts: [{ p, space: false }], x0: p.box[0], x1: p.box[2] };
+        cells.push(cur);
+      }
+    }
+    end = p.o[0] + p.w;
+  }
+  return cells;
+}
+
+const cellText = (c: Cell) => c.parts.map(({ p, space }) => (space ? ' ' : '') + p.item.str).join('').trim();
+
+interface Table {
+  /** line index and cells of each row */
+  rows: { line: number; cells: Cell[] }[];
+  /** per row, the column of each cell; columns are ordered left to right */
+  cols: number[][];
+  width: number;
+}
+
+/** columns of a table: a cell joins the column whose left or right edge it shares, or starts a new one */
+function columns(rows: Cell[][], tol: number): { cols: number[][]; width: number } {
+  const anchors: { x0: number; x1: number }[] = [];
+  const raw = rows.map((cs) =>
+    cs.map((c) => {
+      let k = anchors.findIndex((a) => Math.abs(a.x0 - c.x0) <= tol || Math.abs(a.x1 - c.x1) <= tol);
+      if (k < 0) k = anchors.push({ x0: c.x0, x1: c.x1 }) - 1;
+      return k;
+    }),
+  );
+  const order = anchors.map((a, k) => [a.x0, k]).sort((a, b) => a[0] - b[0]).map(([, k]) => k);
+  const rank = new Map(order.map((k, i) => [k, i]));
+  return { cols: raw.map((r) => r.map((k) => rank.get(k)!)), width: anchors.length };
+}
+
+/**
+ * Tables: consecutive lines of two or more cells, each row sharing at least two cell edges with the
+ * rows above (not prose set in two columns: some column has short cells).
+ */
+function findTables(lines: Line[]): Table[] {
+  const out: Table[] = [];
+  let rows: { line: number; cells: Cell[] }[] = [];
+  const close = () => {
+    if (rows.length >= 2) {
+      const tol = Math.max(1.5, 0.3 * rows[0].cells[0].parts[0].p.fh);
+      const { cols, width } = columns(
+        rows.map((r) => r.cells),
+        tol,
+      );
+      const byCol: number[][] = [...Array(width)].map(() => []);
+      rows.forEach((r, i) => r.cells.forEach((c, k) => byCol[cols[i][k]].push(cellText(c).length)));
+      const median = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1];
+      if (byCol.some((xs) => xs.length >= 2 && median(xs) <= 25)) out.push({ rows, cols, width });
+    }
+    rows = [];
+  };
+  lines.forEach((l, i) => {
+    const cells = cellsOf(l);
+    // a list (a bullet or number, then the text at a tab stop) is no table
+    if (cells.length < 2 || /^(?:[•◦▪▫‣⁃●○■□–—*-]|\(?\d{1,3}[.)]|\(?[a-z][.)])$/u.test(cellText(cells[0]))) return close();
+    if (rows.length) {
+      const prev = rows[rows.length - 1];
+      const fh = l.parts[0].p.fh;
+      const tol = Math.max(1.5, 0.3 * fh);
+      const dy = l.parts[0].p.o[1] - lines[prev.line].parts[0].p.o[1];
+      const seen = rows.flatMap((r) => r.cells);
+      const shared = cells.filter((c) => seen.some((s) => Math.abs(s.x0 - c.x0) <= tol || Math.abs(s.x1 - c.x1) <= tol)).length;
+      if (dy > 0 && dy <= 4 * fh && shared >= 2) {
+        rows.push({ line: i, cells });
+        return;
+      }
+      close();
+    }
+    rows.push({ line: i, cells });
+  });
+  close();
+  return out;
+}
+
 /**
  * The text layer as text with character boxes. Monospace lines keep their indentation (YAML,
- * code); lines broken in the middle of a token are joined.
+ * code); lines broken in the middle of a token are joined; tables become Markdown tables under
+ * column letters, so values get their column.
  */
 export function layerText(items: Placed[]): OcrText {
   const lines = buildLines(items);
   const strs = lines.map((l) => l.parts.map(({ p, space }) => (space ? ' ' : '') + p.item.str).join(''));
-  const joined = softWraps(lines, strs);
+  const rowOf = new Map<number, { t: Table; r: number }>();
+  for (const t of findTables(lines)) t.rows.forEach((row, r) => rowOf.set(row.line, { t, r }));
+  const joined = softWraps(
+    lines,
+    strs,
+    lines.map((_, i) => rowOf.has(i)),
+  );
   const text: string[] = [];
   const boxes: (Box | null)[] = [];
   const ln: number[] = [];
@@ -183,6 +303,16 @@ export function layerText(items: Placed[]): OcrText {
   const starts = lines.map((l) => l.parts[0].p).filter((p) => mono(p) && upright(p));
   const margin = starts.length ? Math.min(...starts.map((p) => p.o[0])) : 0;
   const ends: { last: number; x: number; h: number; next: number }[] = [];
+  const lit = (s: string) => {
+    for (const ch of s) put(ch, null, -1);
+  };
+  const emit = (parts: Line['parts'], i: number, cell: boolean) => {
+    for (const { p, space } of parts) {
+      if (space) put(' ', null, -1);
+      // a | inside a cell would add a column
+      for (let k = 0; k < p.item.str.length; k++) put(cell && p.item.str[k] === '|' ? '¦' : p.item.str[k], /\s/.test(p.item.str[k]) ? null : p.chars[k], i);
+    }
+  };
   lines.forEach((l, i) => {
     const first = l.parts[0].p;
     if (i > 0 && !joined[i]) {
@@ -193,11 +323,30 @@ export function layerText(items: Placed[]): OcrText {
         for (let k = 0; k < n; k++) put(' ', null, -1);
       }
     }
-    const lineStart = text.length;
-    for (const { p, space } of l.parts) {
-      if (space) put(' ', null, -1);
-      for (let k = 0; k < p.item.str.length; k++) put(p.item.str[k], /\s/.test(p.item.str[k]) ? null : p.chars[k], i);
+    const row = rowOf.get(i);
+    if (row) {
+      const { t, r } = row;
+      const sep = '\n|' + ' --- |'.repeat(t.width);
+      // column letters as the header: the segmenter decides whether the first row names the columns
+      if (r === 0) lit('| ' + letters(t.width).join(' | ') + ' |' + sep + '\n');
+      lit('|');
+      for (let c = 0; c < t.width; c++) {
+        lit(' ');
+        t.rows[r].cells.forEach((cell, k) => {
+          if (t.cols[r][k] !== c) return;
+          if (text[text.length - 1] !== ' ') lit(' ');
+          // the cell's own characters, without the spaces around them
+          const parts = cell.parts.filter(({ p }) => p.item.str.trim());
+          emit(cell.parts.slice(cell.parts.indexOf(parts[0]), cell.parts.lastIndexOf(parts[parts.length - 1]) + 1), i, true);
+        });
+        lit(' |');
+      }
+      if (i > 0) ends[i - 1].next = -1;
+      ends.push({ last: text.length - 1, x: NaN, h: first.fh, next: -1 });
+      return;
     }
+    const lineStart = text.length;
+    emit(l.parts, i, false);
     const last = lastOf(l);
     if (i > 0) ends[i - 1].next = joined[i] ? -1 : lineStart;
     ends.push({ last: text.length - 1, x: upright(last) ? last.box[2] : NaN, h: last.fh, next: -1 });

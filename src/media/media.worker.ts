@@ -5,6 +5,7 @@ import jsQR from 'jsqr';
 import TesseractCore, { type TessBaseAPI, type TessModule } from 'tesseract.js-core/tesseract-core-simd-lstm.js';
 import type { Box, OcrResult, OcrWord } from './ocrTypes';
 import { detectFaces, facesReady, initFaces } from './faces';
+import { repairOcr } from './ocrfix';
 import { paintBoxes } from './paint';
 import type { FaceOpts, MediaReq, QrCode, ReadResult, RenderBox, RenderResult } from './protocol';
 
@@ -108,7 +109,8 @@ async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = 
   bx.fillRect(0, 0, w, h);
   bx.drawImage(bmp, 0, 0);
   bmp.close();
-  const qr = wantQr ? findQr(bx.getImageData(0, 0, w, h)) : [];
+  const basePx = bx.getImageData(0, 0, w, h);
+  const qr = wantQr ? findQr(basePx) : [];
   let faces: ReadResult['faces'] = [];
   let faceMs: number | undefined;
   if (wantFaces) {
@@ -143,7 +145,8 @@ async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = 
     ppm[o + 1] = inverted ? 255 - px[i + 1] : px[i + 1];
     ppm[o + 2] = inverted ? 255 - px[i + 2] : px[i + 2];
   }
-  const ocr = recognize(ppm, scale);
+  // word splits the pixels can settle: dropped underscores, monospace narrow glyphs, indentation
+  const ocr = repairOcr(recognize(ppm, scale), basePx);
   return { width: w, height: h, scale, inverted, ocr, qr, faces, faceMs, ms: Math.round(performance.now() - t0) };
 }
 

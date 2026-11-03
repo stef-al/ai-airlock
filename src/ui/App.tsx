@@ -466,8 +466,10 @@ export function App() {
     (d.office?.pictures ?? []).map((pic) => {
       const child = docsRef.current.find((c) => c.parent?.id === d.id && c.parent.key === pic.path);
       const img = child?.image;
-      const fresh = !!child && !!img?.out && !img.rendering && child.status === 'ready' && child.maskedVer === child.mver;
-      return { pic, child, ready: fresh && (settingsRef.current.options.imgReview === false || !!img?.reviewed) };
+      // a picture whose document was removed becomes a blank in the copy
+      if (!child) return { pic, child, ready: true, removed: true };
+      const fresh = !!img?.out && !img.rendering && child.status === 'ready' && child.maskedVer === child.mver;
+      return { pic, child, ready: fresh && (settingsRef.current.options.imgReview === false || !!img?.reviewed), removed: false };
     });
   const officeOps: OfficeOps = {
     pictures: officePictures,
@@ -479,8 +481,8 @@ export function App() {
       if (pics.some((p) => !p.ready)) return setNotice('Every picture of the file has to be redacted (and reviewed) first.');
       try {
         const m = await loadMedia();
-        const images = new Map(pics.map(({ pic, child }) => [pic.path, { bytes: child!.image!.out!.bytes, mime: child!.image!.out!.mime, width: child!.image!.width, height: child!.image!.height }]));
-        const bytes = m.officeCopy(d.office, res, images);
+        const images = new Map(pics.filter((p) => p.child).map(({ pic, child }) => [pic.path, { bytes: child!.image!.out!.bytes, mime: child!.image!.out!.mime, width: child!.image!.width, height: child!.image!.height }]));
+        const bytes = m.officeCopy(d.office, res, images, pics.filter((p) => p.removed).map((p) => p.pic.path));
         const kind = d.office.file?.kind ?? 'docx';
         const ext = /\.(\w+)$/.exec(d.name)?.[1] ?? kind;
         const base = d.name.replace(/\.[^./]+$/, '').replace(/[^\w.-]+/g, '-') || 'document';
@@ -594,7 +596,7 @@ export function App() {
           onRetry={(id) => {
             const d = docsRef.current.find((x) => x.id === id);
             // a file whose reading did not finish is read again
-            if ((d?.pdf && !d.pdf.readKey) || (d?.image && !d.image.text)) void runRead(id);
+            if ((d?.pdf && !d.pdf.readKey) || (d?.image && !d.image.text) || (d?.office && !d.office.file)) void runRead(id);
             else scheduleAnalyze(id, 0);
           }}
           onCancel={() => {

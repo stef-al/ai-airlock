@@ -50,9 +50,9 @@ describe('images: engine side', () => {
 
   it('masks every other occurrence of a value it found once, with the same placeholder', () => {
     const pw = ['Kv7', 'mQ2', 'wZ9', 'pL4'].join('');
-    const t = `password=${pw}\nlater: the password ${pw} is shared (not ${pw}x)`;
+    const t = `password=${pw}\nlater: we shared ${pw} in the chat (not ${pw}x)`;
     const r = maskText(t, S(), new Mapping(), { format: 'prose' });
-    expect(r.output).toBe('password=[PASSWORD_1]\nlater: the password [PASSWORD_1] is shared (not ' + pw + 'x)');
+    expect(r.output).toBe('password=[PASSWORD_1]\nlater: we shared [PASSWORD_1] in the chat (not ' + pw + 'x)');
     expect(r.hits[1].reason).toMatch(/same value as the password found on line 1/);
   });
 

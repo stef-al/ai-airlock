@@ -1,7 +1,8 @@
-// SpreadsheetML: every sheet as a Markdown table (its first row is the header, so columns are
-// classified by it), then the other places a workbook keeps text: comments, headers and footers,
+// SpreadsheetML: every sheet as a Markdown table under column letters (a first row of labels names
+// the columns, so they are classified by it), then the other places a workbook keeps text: comments, headers and footers,
 // strings no cell shows any more, pivot table caches, data connections, drawings and charts.
 import type { Pkg } from './package';
+import { letters } from '../../engine/segment/tables';
 import { charts, common, drawingPart, TextBuilder, type Extras, type OfficeText } from './text';
 import { attr, attrs, decode, tags } from './xml';
 
@@ -62,7 +63,7 @@ type Cell = (b: TextBuilder) => void;
 
 export function xlsxText(p: Pkg, main: string, pkg = ''): OfficeText {
   const b = new TextBuilder(pkg);
-  const ex: Extras = { fields: [], alt: [] };
+  const ex: Extras = { fields: [], attrs: [], alt: [] };
   const wb = p.xml(main);
   const rels = p.rels(main);
   const relById = new Map(rels.map((r) => [r.id, r]));
@@ -156,6 +157,12 @@ export function xlsxText(p: Pkg, main: string, pkg = ''): OfficeText {
     b.section(`Sheet ${name}`, (s) => {
       const filled = rows.filter((r) => r.size);
       const width = Math.max(0, ...filled.map((r) => Math.max(...r.keys()) + 1));
+      // column letters as the header: the segmenter decides whether the first row names the columns
+      if (filled.length) {
+        s.lit('|' + letters(width).map((l) => ` ${l} |`).join(''));
+        s.sep('\n');
+        s.lit('|' + ' --- |'.repeat(width));
+      }
       filled.forEach((r, i) => {
         s.sep('\n');
         s.lit('|');
@@ -164,10 +171,6 @@ export function xlsxText(p: Pkg, main: string, pkg = ''): OfficeText {
           r.get(col)?.(s);
           s.unsep();
           s.lit(' |');
-        }
-        if (i === 0) {
-          s.sep('\n');
-          s.lit('|' + ' --- |'.repeat(width));
         }
       });
     });
@@ -232,6 +235,18 @@ export function xlsxText(p: Pkg, main: string, pkg = ''): OfficeText {
           s.run(n, x, a.start, a.end, { kind: 'attr' });
           s.sep('\n');
         }
+      }
+    }
+  });
+  // links to other workbooks keep a copy of the values they show
+  b.section('Values cached from linked workbooks', (s) => {
+    for (const n of p.names().filter((x) => /^xl\/externalLinks\/externalLink\d+\.xml$/.test(x)).sort(natural)) {
+      const x = p.xml(n);
+      for (const t of tags(x)) {
+        const e = t.name === 'v' && !t.close && !t.self ? x.indexOf('</v>', t.end) : -1;
+        if (e < 0) continue;
+        s.run(n, x, t.end, e);
+        s.sep('\n');
       }
     }
   });

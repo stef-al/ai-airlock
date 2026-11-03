@@ -2,6 +2,7 @@
 // XML it came from (a "run": part + raw offsets). Paragraphs become lines, tables become Markdown
 // tables (so columns are classified by their header), other places that hold text (headers,
 // comments, charts, alt text, link targets…) follow under a heading. Pure: runs in Node.
+import { letters } from '../../engine/segment/tables';
 import { relsOf, type Pkg } from './package';
 import { attrs, decode, tags } from './xml';
 
@@ -118,13 +119,27 @@ const natural = (a: string, b: string) => a.localeCompare(b, 'en', { numeric: tr
 const closeOf = (x: string, name: string, from: number) => x.indexOf(`</${name}>`, from);
 
 /** Markdown table bookkeeping shared by WordprocessingML and DrawingML tables. */
+/** the text of each cell of a table's first row, from its XML (how many columns the table has) */
+function firstRow(x: string, from: number, row: string, cell: string, text: string): string[] {
+  const s = x.indexOf(`<${row}`, from);
+  const e = s < 0 ? -1 : x.indexOf(`</${row}>`, s);
+  if (e < 0) return [];
+  return x
+    .slice(s, e)
+    .split(new RegExp(`<${cell}[\\s>]`))
+    .slice(1)
+    .map((c) => decode([...c.matchAll(new RegExp(`<${text}(?:\\s[^>]*)?>([^<]*)</${text}>`, 'g'))].map((m) => m[1]).join('')));
+}
+
 class Tables {
-  private stack: { row: number; cells: number }[] = [];
+  private stack: { row: number; cells: number; width: number }[] = [];
   cell = 0;
-  constructor(private b: TextBuilder) {}
-  table(open: boolean) {
-    if (open) this.stack.push({ row: 0, cells: 0 });
-    else this.stack.pop();
+  constructor(private b: TextBuilder, private x = '', private tags: [string, string, string] = ['w:tr', 'w:tc', 'w:t']) {}
+  table(open: boolean, at = 0) {
+    if (open) {
+      const first = this.x ? firstRow(this.x, at, ...this.tags) : [];
+      this.stack.push({ row: 0, cells: 0, width: first.length });
+    } else this.stack.pop();
     this.b.sep('\n');
   }
   row(open: boolean) {
@@ -132,12 +147,19 @@ class Tables {
     if (!t) return;
     if (open) {
       this.b.sep('\n');
+      // column letters as the header: the segmenter decides whether the first row names the columns
+      if (t.row === 0 && t.width) {
+        this.b.lit('|' + letters(t.width).map((l) => ` ${l} |`).join(''));
+        this.b.sep('\n');
+        this.b.lit('|' + ' --- |'.repeat(t.width));
+        this.b.sep('\n');
+      }
       this.b.lit('|');
       t.cells = 0;
       return;
     }
-    // a separator row after the first one: the first row is the header
-    if (t.row++ === 0 && t.cells) {
+    // width unknown: the first row is the header
+    if (t.row++ === 0 && t.cells && !t.width) {
       this.b.sep('\n');
       this.b.lit('|' + ' --- |'.repeat(t.cells));
     }
@@ -161,20 +183,26 @@ class Tables {
 export interface Extras {
   /** field instructions (HYPERLINK "…", MERGEFIELD…): [part, start, end] per field */
   fields: [string, number, number][][];
+  /** field instructions kept in attributes (simple fields): [part, start, end] */
+  attrs: [string, number, number][];
   /** alternative text of pictures and shapes: [part, start, end] */
   alt: [string, number, number][];
 }
 
 const ALT_ELEMENTS = /^(?:wp:docPr|pic:cNvPr|p:cNvPr|xdr:cNvPr|wps:cNvPr|dgm:cNvPr|a:cNvPr|wpg:cNvPr)$/;
+/** attributes that hold text elsewhere: VML alt text and titles (older pictures), hyperlink tooltips */
+const ALT_ATTRS: Record<string, string[]> = { 'v:shape': ['alt'], 'v:rect': ['alt'], 'v:imagedata': ['o:title'], 'w:hyperlink': ['w:tooltip'], 'a:hlinkClick': ['tooltip'] };
 
 function altText(x: string, t: { name: string; start: number; end: number; close: boolean; self: boolean }, part: string, ex: Extras) {
-  if (t.close || !ALT_ELEMENTS.test(t.name)) return;
-  for (const a of attrs(x, t as never)) if ((a.name === 'descr' || a.name === 'title') && a.raw.trim()) ex.alt.push([part, a.start, a.end]);
+  if (t.close) return;
+  const names = ALT_ELEMENTS.test(t.name) ? ['descr', 'title'] : ALT_ATTRS[t.name];
+  if (!names) return;
+  for (const a of attrs(x, t as never)) if (names.includes(a.name) && a.raw.trim()) ex.alt.push([part, a.start, a.end]);
 }
 
 /** WordprocessingML: paragraphs, runs, tabs and breaks, tables, field codes, alt text. */
 export function wordPart(b: TextBuilder, part: string, x: string, ex: Extras) {
-  const tables = new Tables(b);
+  const tables = new Tables(b, x, ['w:tr', 'w:tc', 'w:t']);
   let inRun = 0;
   let instr: [string, number, number][] = [];
   for (const t of tags(x)) {
@@ -196,6 +224,12 @@ export function wordPart(b: TextBuilder, part: string, x: string, ex: Extras) {
       case 'w:instrText':
         if (!t.close && !t.self) instr.push([part, t.end, closeOf(x, 'w:instrText', t.end)]);
         break;
+      case 'w:fldSimple': {
+        // a simple field keeps its instruction in an attribute (HYPERLINK "…", MERGEFIELD …)
+        const a = t.close ? undefined : attrs(x, t).find((y) => y.name === 'w:instr');
+        if (a && a.raw.trim()) ex.attrs.push([part, a.start, a.end]);
+        break;
+      }
       case 'w:tab':
         if (inRun > 0 && !t.close) b.lit(tables.cell ? ' ' : '\t');
         break;
@@ -207,7 +241,7 @@ export function wordPart(b: TextBuilder, part: string, x: string, ex: Extras) {
         if (!t.close) b.lit('-');
         break;
       case 'w:tbl':
-        if (!t.self) tables.table(!t.close);
+        if (!t.self) tables.table(!t.close, t.end);
         break;
       case 'w:tr':
         if (!t.self) tables.row(!t.close);
@@ -241,7 +275,7 @@ function placeholderShapes(x: string): [number, number][] {
 
 /** DrawingML (slides, shapes, charts, SmartArt): paragraphs of a:t runs, tables, chart labels, alt text. */
 export function drawingPart(b: TextBuilder, part: string, x: string, ex: Extras, template = false) {
-  const tables = new Tables(b);
+  const tables = new Tables(b, x, ['a:tr', 'a:tc', 'a:t']);
   let str = 0;
   const skipped = template ? placeholderShapes(x) : [];
   const skip = (pos: number) => skipped.some(([a, e]) => pos > a && pos < e);
@@ -258,7 +292,7 @@ export function drawingPart(b: TextBuilder, part: string, x: string, ex: Extras,
         if (!t.close) b.sep(tables.cell ? ' ' : '\n');
         break;
       case 'a:tbl':
-        if (!t.self) tables.table(!t.close);
+        if (!t.self) tables.table(!t.close, t.end);
         break;
       case 'a:tr':
         if (!t.self) tables.row(!t.close);
@@ -300,6 +334,10 @@ export function common(b: TextBuilder, p: Pkg, ex: Extras) {
       for (const [part, a, e] of f) s.run(part, p.xml(part), a, e);
       s.sep('\n');
     }
+    for (const [part, a, e] of ex.attrs) {
+      s.run(part, p.xml(part), a, e, { kind: 'attr' });
+      s.sep('\n');
+    }
   });
   b.section('Alt text', (s) => {
     for (const [part, a, e] of ex.alt) {
@@ -329,7 +367,7 @@ export function charts(b: TextBuilder, p: Pkg, prefix: string, ex: Extras) {
 /** DOCX: body, headers and footers, notes, comments, charts, then the common places. */
 export function docxText(p: Pkg, main: string, pkg = ''): OfficeText {
   const b = new TextBuilder(pkg);
-  const ex: Extras = { fields: [], alt: [] };
+  const ex: Extras = { fields: [], attrs: [], alt: [] };
   wordPart(b, main, p.xml(main), ex);
   const rels = p.rels(main);
   const byType = (t: string) => rels.filter((r) => !r.external && r.type.endsWith('/' + t) && p.has(r.part)).map((r) => r.part).sort(natural);

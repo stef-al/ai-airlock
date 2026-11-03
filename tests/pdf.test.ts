@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defaultSettings, Mapping, maskText, mergeSettings } from '../src/engine';
 import { spanBoxes } from '../src/media/ocrdoc';
 import type { OcrWord } from '../src/media/ocrTypes';
 import { joinPages, layerText, pageText, placeItem, type LayerItem } from '../src/media/pdftext';
@@ -114,6 +115,60 @@ describe('pdf: text layer with character boxes', () => {
     // joined characters keep their own lines' boxes
     const ip = t.text.indexOf('10.0.0.5');
     expect(spanBoxes(t, ip, ip + 8, 0, 612, 792)).toHaveLength(2);
+  });
+
+  it('never joins before a capitalised word', () => {
+    const full = { width: 68 };
+    const lines = ['the quick brown', 'fox jumps over', 'login J3nkins#Prod', 'See the runbook', 'now'];
+    expect(layerText(place(...lines.map((l, i) => item(l, 72, 100 + 12 * i, true, i < 3 ? full : {})))).text).toBe(lines.join('\n'));
+  });
+});
+
+/** a table row: cells at the given x, separated by the wide whitespace items pdf.js inserts */
+const row = (y: number, cells: [string, number][]): LayerItem[] =>
+  cells.flatMap(([s, x], k) => {
+    const out = [item(s, x, y, k === cells.length - 1)];
+    const next = cells[k + 1];
+    if (next) out.push(item(' ', x + s.length * 5, y, false, { width: next[1] - x - s.length * 5 }));
+    return out;
+  });
+
+describe('pdf: tables in the text layer', () => {
+  const X = [72, 172, 272];
+  const cells = (...s: string[]): [string, number][] => s.map((v, k) => [v, X[k]]);
+
+  it('writes aligned cells as a Markdown table, keeping each character box', () => {
+    const items = [item('Access review', 72, 80, true), ...row(100, cells('Service', 'Owner', 'Password')), ...row(114, cells('Jenkins', 'ops', 'J3nkins#Prod')), ...row(128, cells('Grafana', '', 'Gr4f-2024!')).filter((c) => c.str), item('See the runbook', 72, 150)];
+    const t = layerText(place(...items));
+    expect(t.text).toBe('Access review\n| A | B | C |\n| --- | --- | --- |\n| Service | Owner | Password |\n| Jenkins | ops | J3nkins#Prod |\n| Grafana |  | Gr4f-2024! |\nSee the runbook');
+    const at = t.text.indexOf('J3nkins#Prod');
+    expect(t.boxes[at]).toEqual([272, 106, 277, 116]);
+    expect(t.boxes[at - 2]).toBeNull();
+    expect(spanBoxes(t, at, at + 12, 0, 612, 792)).toHaveLength(1);
+    // the values are then masked as passwords of their column, as the app analyses a PDF (format sniffed)
+    const m = maskText('=== Page 1 ===\n' + t.text, mergeSettings(defaultSettings('US'), {}), new Mapping());
+    expect(m.output).toMatch(/\| Jenkins \| [^|\n]+ \| \[PASSWORD_1\] \|/);
+    expect(m.output).not.toContain('Gr4f-2024!');
+  });
+
+  it('gives a table whose first row holds values column letters as its header', () => {
+    const t = layerText(place(...row(100, cells('Jenkins', 'ops', 'J3nkins#Prod')), ...row(114, cells('Grafana', 'ops', 'Gr4f-2024!'))));
+    expect(t.text).toBe('| A | B | C |\n| --- | --- | --- |\n| Jenkins | ops | J3nkins#Prod |\n| Grafana | ops | Gr4f-2024! |');
+  });
+
+  it('leaves prose set in two columns, and lines with one wide gap, as text', () => {
+    const left = ['the quick brown fox jumps over a lazy', 'dog and then from the house it went', 'home with all the other dogs again'];
+    const right = ['while the cat sat on the warm mat and', 'watched them all come and go as they', 'always did on such a sunny afternoon'];
+    const t = layerText(place(...left.flatMap((l, i) => row(100 + 12 * i, [[l, 72], [right[i], 300]]))));
+    expect(t.text).not.toContain('|');
+    // a jump on one line only (a right-aligned date) is no table
+    expect(layerText(place(...row(100, [['Report', 72], ['2024-05-01', 400]]), item('All systems were checked.', 72, 114))).text).toBe('Report 2024-05-01\nAll systems were checked.');
+  });
+
+  it('never joins a table row with the next line', () => {
+    const full = { width: 68 };
+    const t = layerText(place(...row(100, cells('Host', 'Port', 'Key')), ...row(112, cells('db', '5432', 'Pw-2024')), item('the next line ends at', 72, 124, true, full), item('the same edge as these', 72, 136, true, full), item('2025 plan', 72, 148)));
+    expect(t.text).toContain('| db | 5432 | Pw-2024 |\nthe next line');
   });
 });
 

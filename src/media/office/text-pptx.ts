@@ -24,7 +24,7 @@ function commentPart(b: TextBuilder, part: string, x: string, ex: Extras) {
 
 export function pptxText(p: Pkg, main: string, pkg = ''): OfficeText {
   const b = new TextBuilder(pkg);
-  const ex: Extras = { fields: [], alt: [] };
+  const ex: Extras = { fields: [], attrs: [], alt: [] };
   const pres = p.xml(main);
   const rels = new Map(p.rels(main).map((r) => [r.id, r]));
   const slides: string[] = [];
@@ -56,6 +56,20 @@ export function pptxText(p: Pkg, main: string, pkg = ''): OfficeText {
       if (a) {
         s.run(main, pres, a.start, a.end, { kind: 'attr' });
         s.sep('\n');
+      }
+    }
+  });
+  // add-ins keep values in tags (<p:tag name="…" val="…"/>)
+  b.section('Tags', (s) => {
+    for (const n of p.names().filter((x) => /^ppt\/tags\/tag\d+\.xml$/.test(x)).sort(natural)) {
+      const x = p.xml(n);
+      for (const t of tags(x)) {
+        if (t.name !== 'p:tag' || t.close) continue;
+        const v = attrs(x, t).find((a) => a.name === 'val');
+        if (v && v.raw.trim()) {
+          s.run(n, x, v.start, v.end, { kind: 'attr' });
+          s.sep('\n');
+        }
       }
     }
   });

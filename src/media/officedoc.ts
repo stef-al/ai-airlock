@@ -74,11 +74,14 @@ export async function readOffice(bytes: Uint8Array): Promise<Omit<OfficeState, '
   return { file, pictures, blanks };
 }
 
-/** The redacted copy: masked text in place, every picture's redacted copy (or a blank). */
-export function officeCopy(st: OfficeState, res: MaskRes, images: Map<string, RedactedImage>): Uint8Array {
+/**
+ * The redacted copy: masked text in place, every picture's redacted copy, or a blank for pictures
+ * that could not be decoded and pictures the user removed.
+ */
+export function officeCopy(st: OfficeState, res: MaskRes, images: Map<string, RedactedImage>, removed: string[] = []): Uint8Array {
   if (!st.file) throw new Error('the file is not read yet');
   const all = new Map(images);
-  for (const p of st.blanks) all.set(p, { bytes: BLANK_PNG, mime: 'image/png', width: 1, height: 1 });
+  for (const p of [...st.blanks, ...removed]) all.set(p, { bytes: BLANK_PNG, mime: 'image/png', width: 1, height: 1 });
   const reps = res.replacements.map((r) => ({ start: r.start, end: r.end, text: res.output.slice(r.outStart, r.outEnd) }));
   return buildCopy(st.file, reps, all);
 }

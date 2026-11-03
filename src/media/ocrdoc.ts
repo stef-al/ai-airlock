@@ -152,8 +152,10 @@ export function ocrText(r: OcrResult, regions: Region[] = [], width = 0): OcrTex
       const wrapped = wrapping && atEdge[i - 1] && tokens && tail.length >= 12;
       if (!wrapped) {
         // not joined, but it may still be a wrapped token: its box can extend to the next word
-        if (atEdge[i - 1] && tokens) cont.push({ at: text.length - 1, start: text.length + 1, end: text.length + 1 + head.length });
+        if (atEdge[i - 1] && tokens) cont.push({ at: text.length - 1, start: text.length + 1 + (ws[0].indent ?? 0), end: text.length + 1 + (ws[0].indent ?? 0) + head.length });
         push('\n', null, -1);
+        // a monospace line keeps its indentation (YAML, Python)
+        if (ws[0].indent) push(' '.repeat(ws[0].indent), null, -1);
       }
     }
     ws.forEach((w, k) => {

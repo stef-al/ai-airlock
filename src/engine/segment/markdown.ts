@@ -2,6 +2,7 @@ import type { Column } from '../types';
 import { SegBuilder } from '../util';
 import { isTableSep } from './csv';
 import type { Part } from './part';
+import { headerLike, letters } from './tables';
 
 export type SubSegmenter = (code: string, info: string) => Part | null;
 
@@ -160,14 +161,27 @@ export function segmentMarkdown(text: string, sub: SubSegmenter, tolerant = fals
       }));
       for (const c of hdr) b.add(c.s, c.e, 'key');
       li += bare ? 1 : 2;
+      // a header of column letters (a table read from an Office file or a PDF): a first row of
+      // labels names the columns, but stays text that can be masked (it may be a form's first row)
+      const lettered = letters(hdr.length).every((l, k) => text.slice(hdr[k].s, hdr[k].e).trim() === l);
+      let first = true;
       while (li < lines.length && line(li).includes('|') && line(li).trim()) {
         const cells = tableCells(line(li), lines[li].s);
+        const names = lettered && first && headerLike(cells.map((c) => text.slice(c.s, c.e)));
+        first = false;
         cells.forEach((c, idx) => {
           if (c.e > c.s) {
             b.add(c.s, c.e, 'prose');
-            if (cols[idx]) cols[idx].cells.push({ start: c.s, end: c.e });
+            if (!cols[idx]) return;
+            if (names) Object.assign(cols[idx], { header: text.slice(c.s, c.e), headerStart: c.s, headerEnd: c.e });
+            else cols[idx].cells.push({ start: c.s, end: c.e });
           }
         });
+        // a two-column table is often a form: "| Password | x!y1 |" reads as "Password: x!y1"
+        if (hdr.length === 2 && cells.length === 2 && cells[0].e > cells[0].s && cells[1].e > cells[1].s) {
+          const k = text.slice(cells[0].s, cells[0].e).trim();
+          pairs.push({ key: k.endsWith(':') ? k.slice(0, -1).trimEnd() : k, keyStart: cells[0].s, keyEnd: cells[0].e, valStart: cells[1].s, valEnd: cells[1].e, quote: '', kind: 'kv' });
+        }
         li++;
       }
       columns.push(...cols);

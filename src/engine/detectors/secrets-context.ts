@@ -145,6 +145,19 @@ function fromCall(doc: Doc, p: Pair, an: KeyAnalyzer): Hit | null {
   return null;
 }
 
+/**
+ * A word that can only be a secret: 8 to 64 characters, at least three of lower case, upper case,
+ * digits and symbols (a digit among them), and not a path, host, version, reference or identifier.
+ */
+export function strongSecretShape(v: string): boolean {
+  if (v.length < 8 || v.length > 64 || /[\s/\\]/.test(v) || /^[$%{<[(]/.test(v) || /\.\w/.test(v)) return false;
+  if (!/\d/.test(v)) return false;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(v)).length;
+  if (classes < 3) return false;
+  // CONSTANT_NAME_2, snake_case_v2: identifiers, not secrets
+  return !/^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/.test(v);
+}
+
 function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<number>): Hit[] {
   const t = doc.text;
   const n = t.length;
@@ -210,6 +223,7 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     const sym = /^(?::=|=>|===|==|=|:)/.exec(t.slice(q, q + 3));
     let vstart = -1;
     let loose = false;
+    let direct = false;
     if (sym) {
       if (sym[0] === ':' && (t[q + 1] === ':' || t[q + 1] === '/')) continue;
       let a = q + sym[0].length;
@@ -229,6 +243,14 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
       if (pc) {
         vstart = we + pc[0].length;
         loose = true;
+      } else if (ki.strength !== 'weak') {
+        // "rotate the password Cm7!xYz2q", "password Hdr!Pw-77": no connector, but the next word can only be a secret
+        const nx = /^[ \t]+(\S{8,64})/.exec(t.slice(we, we + 80));
+        if (nx && strongSecretShape(nx[1].replace(/[.,;:!?)\]'"]+$/, ''))) {
+          vstart = we + nx[0].length - nx[1].length;
+          loose = true;
+          direct = true;
+        }
       }
     }
     if (vstart < 0) continue;
@@ -274,14 +296,14 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     });
     if (!v.ok) continue;
     if (!aggressive && ki.strength === 'weak' && v.conf < 0.6) continue;
-    const how = loose ? `value stated after '${t.slice(kStart, kEnd)}' in text` : flag ? `value of command-line flag '${t.slice(segStart, we)}'` : `literal assigned to '${word}'`;
-    out.push(mkHit(ID, ki.type, vs, vs + text.length, v.conf, how, 2, loose ? 'prose' : flag ? 'cli-flag' : 'text-kv'));
+    const how = direct ? `password-like word right after '${t.slice(kStart, kEnd)}'` : loose ? `value stated after '${t.slice(kStart, kEnd)}' in text` : flag ? `value of command-line flag '${t.slice(segStart, we)}'` : `literal assigned to '${word}'`;
+    out.push(mkHit(ID, ki.type, vs, vs + text.length, direct ? Math.min(v.conf, 0.78) : v.conf, how, 2, loose ? 'prose' : flag ? 'cli-flag' : 'text-kv'));
   }
   return out;
 }
 
 const USER_PASS =
-  /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
+  /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)(?![\p{L}\p{N}])\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
 const LOGIN_PAIR =
   /\b(?:logins?|creds?|credentials|zugangsdaten|zugang|access|account|identifiants|credenciales|credenziali|dane logowania|přihlašovací údaje)\b[^\n]{0,60}?(?:\bis\b|\bare\b|\bist\b|\bsind\b|:|=)\s*['"`]?([\w.@-]{2,40})['"`]?\s*[/|]\s*['"`]?([^\s/|'"`]{4,64})/gi;
 const B64_CRED =

@@ -22,6 +22,9 @@ export interface Rel {
 }
 
 const CT = '[Content_Types].xml';
+/** limits of what a file may unpack to */
+const MAX_PART = 200 * 1048576;
+const MAX_TOTAL = 600 * 1048576;
 /** ZIP timestamps carry no information about the original file */
 const MTIME = new Date(Date.UTC(2000, 0, 1));
 
@@ -65,13 +68,25 @@ export class Pkg {
 
   static read(bytes: Uint8Array): Pkg {
     const p = new Pkg();
-    const files = unzipSync(bytes);
+    // sizes are checked from the ZIP directory before anything is inflated (a small file can unpack to gigabytes)
+    let total = 0;
+    const files = unzipSync(bytes, {
+      filter: (f) => {
+        total += f.originalSize;
+        if (f.originalSize > MAX_PART || total > MAX_TOTAL) throw new Error(`the file unpacks to more than ${Math.round((f.originalSize > MAX_PART ? MAX_PART : MAX_TOTAL) / 1048576)} MB`);
+        return true;
+      },
+    });
     for (const [name, data] of Object.entries(files)) {
       if (name.endsWith('/')) continue;
       p.files.set(name, data);
       p.order.push(name);
     }
-    if (!p.files.has(CT)) throw new Error('not an Office Open XML file (no [Content_Types].xml)');
+    if (!p.files.has(CT)) {
+      const mime = new TextDecoder().decode(p.files.get('mimetype') ?? new Uint8Array());
+      if (mime.startsWith('application/vnd.oasis.opendocument')) throw new Error('an OpenDocument file (.odt, .ods, .odp): save it as .docx, .xlsx or .pptx first');
+      throw new Error('not a Word, PowerPoint or Excel file (no [Content_Types].xml)');
+    }
     return p;
   }
 

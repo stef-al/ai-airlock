@@ -11,6 +11,9 @@ export const MEDIA_FILES: Record<string, string> = {
   ...Object.fromEntries(OCR_LANGS.map((l) => [`tess/${l}.traineddata.gz`, `node_modules/@tesseract.js-data/${l}/4.0.0_best_int/${l}.traineddata.gz`])),
   'faces/blazeface.json': 'vendor/blazeface/blazeface-back.json',
   'faces/blazeface.bin': 'vendor/blazeface/blazeface-back.bin',
+  // TF.js WebAssembly backend (SIMD build, and the plain one for browsers without SIMD)
+  'faces/tfjs-simd.wasm': 'node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm-simd.wasm',
+  'faces/tfjs.wasm': 'node_modules/@tensorflow/tfjs-backend-wasm/dist/tfjs-backend-wasm.wasm',
 };
 
 /** every file of `dir` that matches is embedded as `prefix + file name` */

@@ -293,9 +293,9 @@ for (const [o, pages] of [[out3, 2], [out4, 1]]) {
     if ([apiToken, adminPw, dbPw].some((v) => text.includes(v)) || masked.test(text)) await fail(`${o.label} copy still shows a masked value:\n${text}`);
   }
 }
-// the face model still loads from memory (used by a later phase)
+// the face detector runs on its WebAssembly backend, from memory
 const fm = await check.evaluate((b) => globalThis.__airlockSelfTest.faces(b), embedded);
-if (fm.shapes.length !== 4) await fail('face model outputs: ' + JSON.stringify(fm));
+if (fm.backend !== 'wasm' || fm.faces.length) await fail('face detector (WebAssembly backend, no face in a text screenshot): ' + JSON.stringify(fm));
 
 // restore puts back what a box label stands for
 await page.getByRole('tab', { name: /Restore/ }).click();
@@ -323,5 +323,5 @@ if (inWorker !== 'blocked') await fail('fetch from a worker was not blocked: ' +
 const unexpected = problems.filter((x) => !/https:\/\/example\.com\/.*(?:Refused to connect|Content Security Policy)|Refused to connect to 'https:\/\/example\.com/.test(x));
 if (unexpected.length) await fail('console problems (CSP violations show here):\n' + unexpected.join('\n'));
 
-console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | text PDF (text layer + screenshot), scanned PDF and a PDF with a password: image-only copies without text or metadata, nothing readable | Word file masked in place, its picture redacted, author renamed, opens in LibreOffice | restore of box labels and PDF placeholders | face model loads | no requests, no CSP violations');
+console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | text PDF (text layer + screenshot), scanned PDF and a PDF with a password: image-only copies without text or metadata, nothing readable | Word file masked in place, its picture redacted, author renamed, opens in LibreOffice | restore of box labels and PDF placeholders | face detector runs on WebAssembly from memory | no requests, no CSP violations');
 await browser.close();

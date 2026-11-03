@@ -2,7 +2,7 @@
 // down): the text layer (exact text; character positions estimated within each item), OCR words
 // for what the text layer lacks (scans, text inside images, text drawn as outlines), and the
 // contents of annotations and QR codes. Pure: no DOM, no pdf.js.
-import { HEAD, ocrText, TAIL, type OcrText } from './ocrdoc';
+import { faceRegion, HEAD, ocrText, TAIL, type OcrText } from './ocrdoc';
 import type { Box, OcrWord } from './ocrTypes';
 
 /** A text item of pdf.js getTextContent(), placed on the page. */
@@ -268,6 +268,8 @@ export interface PageInput {
   ocr: OcrWord[];
   annots: PageAnnot[];
   qr: { text: string; box: Box }[];
+  /** faces found on the page raster (page units) */
+  faces?: { box: Box; score: number }[];
   width: number;
 }
 
@@ -275,6 +277,8 @@ export interface PageText {
   text: OcrText;
   /** where each QR code's content is in the text (always masked) */
   qr: { start: number; end: number }[];
+  /** where each face's line is in the text, with the detector's score */
+  faces: { start: number; end: number; score: number }[];
   /** OCR words that were added (text the text layer does not have) */
   ocrWords: number;
 }
@@ -315,9 +319,12 @@ export function pageText(p: PageInput): PageText {
     return { start, end: reg.text.length };
   };
   for (const q of p.qr) qrAt.push(line('QR code', oneLine(q.text), q.box));
+  // faces do not drop the words under them (a wrong box must not hide text from detection)
+  const faceAt = (p.faces ?? []).map((f) => ({ ...line('Face', faceRegion(f.box, f.score).text, f.box), score: f.score }));
   for (const a of p.annots) if (oneLine(a.text)) line(a.label, oneLine(a.text), a.box);
   const { joined, at } = joinTexts([layer, read, reg]);
-  return { text: joined, qr: qrAt.map((s) => ({ start: s.start + at[2], end: s.end + at[2] })), ocrWords: words.length };
+  const shift = <T extends { start: number; end: number }>(s: T): T => ({ ...s, start: s.start + at[2], end: s.end + at[2] });
+  return { text: joined, qr: qrAt.map(shift), faces: faceAt.map(shift), ocrWords: words.length };
 }
 
 /** The whole document as one text: a marker line before each page when there are several. */

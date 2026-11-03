@@ -129,6 +129,7 @@ export function PdfReview({ d, settings, sel, setSel, ops, outputOf, onKeepOnce,
   const ocrPages = st.pages.filter((x) => x.ocr);
   const dropped = st.pages.reduce((a, x) => ({ links: a.links + x.dropped.links, comments: a.comments + x.dropped.comments, attachments: a.attachments + x.dropped.attachments }), { links: 0, comments: 0, attachments: 0 });
   const qr = st.pages.reduce((k, x) => k + x.qr.length, 0);
+  const faces = st.pages.reduce((k, x) => k + (x.faces?.length ?? 0), 0);
 
   return (
     <>
@@ -196,7 +197,7 @@ export function PdfReview({ d, settings, sel, setSel, ops, outputOf, onKeepOnce,
           </div>
           {needReview && (
             <label className="reviewed">
-              <input type="checkbox" checked={st.reviewed} disabled={!ready} onChange={(e) => ops.setReviewed(d, e.target.checked)} /> I checked every page of the redacted copy: nothing sensitive is left (faces, signatures, handwriting, logos are not found automatically)
+              <input type="checkbox" checked={st.reviewed} disabled={!ready} onChange={(e) => ops.setReviewed(d, e.target.checked)} /> I checked every page of the redacted copy: nothing sensitive is left (faces are found automatically but not always; signatures, handwriting and logos are not found)
             </label>
           )}
           {d.result && (
@@ -219,6 +220,7 @@ export function PdfReview({ d, settings, sel, setSel, ops, outputOf, onKeepOnce,
             {inv && inv.hiddenLayers.length > 0 && <li>Hidden layers ({inv.hiddenLayers.join(', ')}) are not in the copy; their text is in the masked text.</li>}
             {inv && inv.revisions > 1 && <li>The file kept {inv.revisions - 1} earlier version{inv.revisions > 2 ? 's' : ''} (incremental saves): only the current one is in the copy.</li>}
             {qr > 0 && <li>{qr} QR code{qr > 1 ? 's' : ''} covered.</li>}
+            {faces > 0 && <li>{faces} face{faces > 1 ? 's' : ''} found on pages with pictures and covered.</li>}
             {out?.verify.ran && out.verify.readable.length === 0 && <li className="oktext">Checked by reading the copy again: no masked value is readable{out.verify.covered ? ` (${out.verify.covered} more places were covered)` : ''}.</li>}
             {out?.verify.ran && out.verify.readable.length > 0 && <li className="warntext">Still readable in the copy: {out.verify.readable.map((v) => v.slice(0, 20)).join(', ')}. Cover them by hand.</li>}
             {out && <li>Copy made in {(out.ms / 1000).toFixed(1)} s, {(out.bytes.length / 1024 / 1024).toFixed(1)} MB.</li>}

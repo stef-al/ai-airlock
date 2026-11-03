@@ -4,8 +4,9 @@
 import jsQR from 'jsqr';
 import TesseractCore, { type TessBaseAPI, type TessModule } from 'tesseract.js-core/tesseract-core-simd-lstm.js';
 import type { Box, OcrResult, OcrWord } from './ocrTypes';
+import { detectFaces, facesReady, initFaces } from './faces';
 import { paintBoxes } from './paint';
-import type { MediaReq, QrCode, ReadResult, RenderBox, RenderResult } from './protocol';
+import type { FaceOpts, MediaReq, QrCode, ReadResult, RenderBox, RenderResult } from './protocol';
 
 let tess: TessModule | null = null;
 let api: TessBaseAPI | null = null;
@@ -95,7 +96,7 @@ function findQr(img: ImageData): QrCode[] {
   return out;
 }
 
-async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = true, upscale = true): Promise<ReadResult> {
+async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = true, upscale = true, wantFaces = false, faceOpts: FaceOpts = {}): Promise<ReadResult> {
   const t0 = performance.now();
   const bmp = image instanceof ImageBitmap ? image : await decode(image);
   const w = bmp.width;
@@ -108,7 +109,15 @@ async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = 
   bx.drawImage(bmp, 0, 0);
   bmp.close();
   const qr = wantQr ? findQr(bx.getImageData(0, 0, w, h)) : [];
-  if (!wantOcr) return { width: w, height: h, scale: 1, inverted: false, ocr: { text: '', conf: 0, words: [] }, qr, ms: Math.round(performance.now() - t0) };
+  let faces: ReadResult['faces'] = [];
+  let faceMs: number | undefined;
+  if (wantFaces) {
+    if (!facesReady()) throw new Error('the face model is not loaded');
+    const r = detectFaces(base, faceOpts);
+    faces = r.faces;
+    faceMs = r.ms;
+  }
+  if (!wantOcr) return { width: w, height: h, scale: 1, inverted: false, ocr: { text: '', conf: 0, words: [] }, qr, faces, faceMs, ms: Math.round(performance.now() - t0) };
   // Tesseract reads text best at 20-30 px: screenshot-sized images are enlarged
   const scale = upscale && Math.max(w, h) <= 2200 ? 2 : 1;
   const W = Math.round(w * scale);
@@ -135,7 +144,7 @@ async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = 
     ppm[o + 2] = inverted ? 255 - px[i + 2] : px[i + 2];
   }
   const ocr = recognize(ppm, scale);
-  return { width: w, height: h, scale, inverted, ocr, qr, ms: Math.round(performance.now() - t0) };
+  return { width: w, height: h, scale, inverted, ocr, qr, faces, faceMs, ms: Math.round(performance.now() - t0) };
 }
 
 async function render(image: Uint8Array, boxes: RenderBox[], mime: string, labels: boolean): Promise<RenderResult> {
@@ -169,8 +178,11 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: MediaReq }>) => {
         reply({ ok: true, result: { langs } });
         break;
       }
+      case 'faces-init':
+        reply({ ok: true, result: { backend: await initFaces(req) } });
+        break;
       case 'read':
-        reply({ ok: true, result: await read(req.image, req.qr, req.ocr ?? true, req.upscale ?? true) });
+        reply({ ok: true, result: await read(req.image, req.qr, req.ocr ?? true, req.upscale ?? true, req.faces ?? false, req.faceOpts) });
         break;
       case 'render': {
         const r = await render(req.image, req.boxes, req.mime, req.labels);

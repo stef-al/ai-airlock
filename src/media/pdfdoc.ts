@@ -25,6 +25,8 @@ export interface PdfPage {
   text: OcrText;
   /** QR code contents (page-local offsets) */
   qr: { start: number; end: number }[];
+  /** faces found on the page (page-local offsets of their lines, detector scores) */
+  faces: { start: number; end: number; score: number }[];
   /** OCR ran on the page; words = how many it added to the text layer */
   ocr: { ms: number; conf: number; words: number } | null;
   images: boolean;
@@ -167,29 +169,33 @@ export async function readPdf(st: PdfState, s: Settings, progress: (msg: string)
     const wantOcr = o.ocr === 'always' || r.images || chars < 40;
     let words: OcrWord[] = [];
     let qr: { text: string; box: Box }[] = [];
+    let faces: { box: Box; score: number }[] = [];
     let ocr: PdfPage['ocr'] = null;
     if (wantOcr || io.qr) {
       if (wantOcr) progress(`Reading page ${i} of ${n} (OCR)…`);
       const k = wantOcr ? ocrScale(r.w, r.h, r.imageDpi) : Math.min(QR_SCALE, 3000 / Math.max(r.w, r.h));
       const canvas = await renderPage(page, k);
       try {
-        const res = await readPixels(canvasBitmap(canvas), langs, { qr: io.qr, ocr: wantOcr, upscale: false });
+        // faces where there are pictures: the pages that get OCR
+        const res = await readPixels(canvasBitmap(canvas), langs, { qr: io.qr, ocr: wantOcr, upscale: false, faces: wantOcr && io.faces });
         words = res.ocr.words.map((w) => ({ ...w, box: scaleBox(w.box, 1 / k), chars: w.chars.map((c) => ({ ...c, box: scaleBox(c.box, 1 / k) })) }));
         qr = res.qr.map((q) => ({ text: q.text, box: scaleBox(q.box, 1 / k) }));
+        faces = res.faces.map((f) => ({ box: scaleBox(f.box, 1 / k), score: f.score }));
         if (wantOcr) ocr = { ms: res.ms, conf: res.ocr.conf, words: 0 };
       } finally {
         release(canvas);
       }
     }
     page.cleanup();
-    const t = pageText({ items: placed, ocr: words, annots: r.annots, qr, width: r.w });
+    const t = pageText({ items: placed, ocr: words, annots: r.annots, qr, faces, width: r.w });
     if (ocr) ocr.words = t.ocrWords;
-    pages.push({ w: r.w, h: r.h, text: t.text, qr: t.qr, ocr, images: r.images, imageDpi: r.imageDpi, dropped: r.dropped });
+    pages.push({ w: r.w, h: r.h, text: t.text, qr: t.qr, faces: t.faces, ocr, images: r.images, imageDpi: r.imageDpi, dropped: r.dropped });
   }
   const { text, offsets } = joinPages(pages.map((p) => p.text.text));
-  const extra: Hit[] = pages.flatMap((p, i) =>
-    p.qr.map((sp) => ({ start: sp.start + offsets[i], end: sp.end + offsets[i], type: 'QR', category: 'custom' as const, detector: 'media.qr', confidence: 1, reason: 'QR code: always masked, whatever it contains', priority: 5, user: 'region' as const })),
-  );
+  const extra: Hit[] = pages.flatMap((p, i) => [
+    ...p.qr.map((sp) => ({ start: sp.start + offsets[i], end: sp.end + offsets[i], type: 'QR', category: 'custom' as const, detector: 'media.qr', confidence: 1, reason: 'QR code: always masked, whatever it contains', priority: 5, user: 'region' as const })),
+    ...p.faces.map((sp) => ({ start: sp.start + offsets[i], end: sp.end + offsets[i], type: 'FACE', category: 'personal' as const, detector: 'media.face', confidence: Math.round(sp.score * 100) / 100, reason: `face found by the detector (score ${Math.round(sp.score * 100)}%)`, priority: 5, user: 'region' as const })),
+  ]);
   return { inv, pages, offsets, usedOcr: pages.some((p) => (p.ocr?.words ?? 0) > 0), text, extra, readKey: pdfReadKey(s), readMs: Math.round(performance.now() - t0) };
 }
 

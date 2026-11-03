@@ -22,12 +22,13 @@ export const imageOptions = (s: Settings) => ({
   pad: Number(opt(s, 'imgPad', '0.2')) || 0.2,
   allText: opt(s, 'imgAllText', false),
   qr: opt(s, 'imgQr', true),
+  faces: opt(s, 'imgFaces', true),
   verify: opt(s, 'imgVerify', true),
   review: opt(s, 'imgReview', true),
 });
 
-/** OCR languages and QR scanning: the image is read again when these change. */
-export const readKey = (s: Settings) => ocrLangs(s).join('+') + (imageOptions(s).qr ? '+qr' : '');
+/** OCR languages, QR codes and faces: the image is read again when these change. */
+export const readKey = (s: Settings) => ocrLangs(s).join('+') + (imageOptions(s).qr ? '+qr' : '') + (imageOptions(s).faces ? '+faces' : '');
 
 export const PDF_DPIS = [100, 150, 200] as const;
 

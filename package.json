@@ -13,6 +13,7 @@
     "metrics": "tsx scripts/metrics.ts",
     "metrics:media": "tsx scripts/metrics-media.ts",
     "metrics:office": "tsx scripts/metrics-office.ts",
+    "metrics:faces": "tsx scripts/metrics-faces.ts",
     "smoke": "node scripts/smoke.mjs && node scripts/smoke-media.mjs",
     "gen:names": "tsx scripts/gen-names.ts",
     "predev": "npm run gen:names --silent",
@@ -20,10 +21,12 @@
     "pretest": "npm run gen:names --silent",
     "prebuild": "npm run gen:names --silent",
     "premetrics": "npm run gen:names --silent",
-    "premetrics:office": "npm run gen:names --silent"
+    "premetrics:office": "npm run gen:names --silent",
+    "premetrics:faces": "npm run gen:names --silent"
   },
   "dependencies": {
     "@tensorflow/tfjs-backend-cpu": "4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
     "@tensorflow/tfjs-converter": "4.22.0",
     "@tensorflow/tfjs-core": "4.22.0",
     "fflate": "0.8.3",

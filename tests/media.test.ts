@@ -50,8 +50,24 @@ describe('OCR text with character boxes', () => {
     expect(t.text.startsWith('scan this\nQR code: ')).toBe(true);
     const t2 = ocrText(page(['scan this']), regions);
     const [span] = regionSpans(t2, regions);
-    expect(t2.text.slice(span.start, span.end)).toBe(regions[0].text);
-    expect(t2.boxes[span.start + 3]).toEqual([500, 500, 600, 600]);
+    expect(t2.text.slice(span!.start, span!.end)).toBe(regions[0].text);
+    expect(t2.boxes[span!.start + 3]).toEqual([500, 500, 600, 600]);
+  });
+
+  it('adds faces as regions that keep the words under them, and makes them findings', async () => {
+    const { faceRegion } = await import('../src/media/ocrdoc');
+    const { regionHits } = await import('../src/media/image');
+    const face = faceRegion([0, 25, 600, 600], 0.83);
+    const qr = { label: 'QR code', text: 'https://example.org/x', box: [700, 700, 800, 800] as Box };
+    const t = ocrText(page(['scan this', 'Il|1 rbd']), [face, qr]);
+    // a face box does not hide the text under it from detection (a wrong box must not hide a secret)
+    expect(t.text).toBe('scan this\nIl|1 rbd\nFace: face at 0,25 (600×575 px)\nQR code: https://example.org/x');
+    const hits = regionHits(t, [face, qr]);
+    expect(hits.map((h) => [h.type, h.confidence, t.text.slice(h.start, h.end)])).toEqual([
+      ['FACE', 0.83, 'face at 0,25 (600×575 px)'],
+      ['QR', 1, 'https://example.org/x'],
+    ]);
+    expect(hits[0].reason).toMatch(/face found by the detector \(score 83%\)/);
   });
 
   it('repairs quotes OCR got wrong, without moving any box', () => {

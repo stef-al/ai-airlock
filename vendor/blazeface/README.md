@@ -12,4 +12,6 @@ fetched from anywhere at runtime.
 - **Origin:** Google MediaPipe BlazeFace, the 256×256 "back camera" model for faces further from the camera (Apache License 2.0), converted to TensorFlow.js by Vladimir Mandic.
 - **Model:** input `1×256×256×3` (RGB scaled to [-1, 1]); 896 anchors in two grids, 16×16×2 and 8×8×6. Outputs are box and keypoint regressors (`1×512×16`, `1×384×16`) and scores (`1×512×1`, `1×384×1`, logits).
 
-To update, replace both files, update the hashes above, and run `npm run build && npm run smoke`.
+It runs in the media worker on TF.js's WebAssembly backend (`@tensorflow/tfjs-backend-wasm`, Apache-2.0; its `.wasm` files are embedded too), see `src/media/faces.ts`. Decoding, tiling and merging are in `src/media/facedetect.ts`; the score threshold comes from `npm run metrics:faces`.
+
+To update, replace both files, update the hashes above, and run `npm run build && npm run smoke && npm run metrics:faces`.

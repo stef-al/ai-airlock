@@ -67,6 +67,7 @@ function ImageSettings({ s, up }: { s: Settings; up: (f: (x: Settings) => Settin
         </label>
         <label><input type="checkbox" checked={o.allText} onChange={(e) => setOpt('imgAllText', e.target.checked)} /> cover all text, not only findings</label>
         <label><input type="checkbox" checked={o.qr} onChange={(e) => setOpt('imgQr', e.target.checked)} /> find and cover QR codes</label>
+        <label><input type="checkbox" checked={o.faces} onChange={(e) => setOpt('imgFaces', e.target.checked)} /> find and cover faces</label>
         <label><input type="checkbox" checked={o.verify} onChange={(e) => setOpt('imgVerify', e.target.checked)} /> read the redacted copy again and cover what is still readable</label>
         <label><input type="checkbox" checked={o.review} onChange={(e) => setOpt('imgReview', e.target.checked)} /> require a tick before an image can be copied</label>
       </div>
@@ -91,7 +92,7 @@ function ImageSettings({ s, up }: { s: Settings; up: (f: (x: Settings) => Settin
           </select>
         </label>
       </div>
-      <p className="small muted">Faces, signatures, handwriting and logos are not found automatically: drag over them in the review. The redacted copy is a new file without metadata (location, camera, author). A redacted PDF is made of page images: no text layer, form fields, comments, links, attachments or scripts survive.</p>
+      <p className="small muted">Faces are found by a detector that runs in this page (frontal and turned faces from about 15 px; not every face): check the copy. Signatures, handwriting and logos are not found: drag over them in the review. The redacted copy is a new file without metadata (location, camera, author). A redacted PDF is made of page images: no text layer, form fields, comments, links, attachments or scripts survive.</p>
     </section>
   );
 }

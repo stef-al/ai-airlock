@@ -55,7 +55,8 @@ export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkee
   const ready = !!out && !img.rendering && d.status === 'ready' && d.maskedVer === d.mver;
   const allowed = ready && (!needReview || img.reviewed);
   const read = img.read;
-  const qr = img.regions.length;
+  const qr = img.regions.filter((g) => g.type !== 'FACE').length;
+  const faces = img.regions.length - qr;
 
   return (
     <>
@@ -118,14 +119,15 @@ export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkee
           </div>
           {needReview && (
             <label className="reviewed">
-              <input type="checkbox" checked={img.reviewed} disabled={!ready} onChange={(e) => ops.setReviewed(d, e.target.checked)} /> I checked the redacted copy: nothing sensitive is left (faces, signatures, handwriting, logos are not found automatically)
+              <input type="checkbox" checked={img.reviewed} disabled={!ready} onChange={(e) => ops.setReviewed(d, e.target.checked)} /> I checked the redacted copy: nothing sensitive is left (faces are found automatically but not always; signatures, handwriting and logos are not found)
             </label>
           )}
           <ul className="report small">
             {read && <li>Text read in {read.ms} ms{read.scale > 1 ? `, enlarged ×${read.scale}` : ''}{read.inverted ? ', dark background inverted' : ''}; OCR confidence {Math.round(read.ocr.conf)}%.</li>}
             <li>{img.meta.found.length ? `Removed with the re-encoding: ${img.meta.found.join(', ')}.` : 'No metadata found; the copy is a newly encoded image anyway.'}</li>
             {img.meta.frames > 1 && <li>Animated image: only the first of {img.meta.frames} frames is kept.</li>}
-            {qr > 0 && <li>{qr} QR code{qr > 1 ? 's' : ''} covered: {img.regions.map((g) => g.text.slice(0, 60)).join(' | ')}</li>}
+            {qr > 0 && <li>{qr} QR code{qr > 1 ? 's' : ''} covered: {img.regions.filter((g) => g.type !== 'FACE').map((g) => g.text.slice(0, 60)).join(' | ')}</li>}
+            {faces > 0 && <li>{faces} face{faces > 1 ? 's' : ''} found and covered (keep one in the findings if it may stay).</li>}
             {out?.verify.ran && out.verify.readable.length === 0 && <li className="oktext">Checked by reading the copy again: no masked value is readable{out.verify.covered ? ` (${out.verify.covered} more places were covered)` : ''}.</li>}
             {out?.verify.ran && out.verify.readable.length > 0 && <li className="warntext">Still readable in the copy: {out.verify.readable.map((v) => v.slice(0, 20)).join(', ')}. Cover them by hand.</li>}
           </ul>

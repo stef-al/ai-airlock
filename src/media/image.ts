@@ -7,7 +7,7 @@ import { imageOptions, ocrLangs } from './options';
 export { defaultOcrLangs, imageOptions, ocrLangs, readKey } from './options';
 import { readImage, renderRedacted } from './mediaClient';
 import { describeImage, type ImageMeta } from './metadata';
-import { findValue, ocrText, padBox, regionSpans, spanBoxes, type OcrText, type Region } from './ocrdoc';
+import { faceRegion, findValue, ocrText, padBox, regionSpans, spanBoxes, type OcrText, type Region } from './ocrdoc';
 
 export { applyFixes } from './ocrdoc';
 import type { Box } from './ocrTypes';
@@ -64,24 +64,32 @@ export const isImage = (bytes: Uint8Array) => describeImage(bytes.subarray(0, 64
 /** OCR (and QR codes) of the image; the text that detection runs on, with its boxes. */
 export async function readImageText(img: ImageState, s: Settings): Promise<{ read: ReadResult; text: OcrText; regions: Region[]; width: number; height: number }> {
   const o = imageOptions(s);
-  const read = await readImage(img.bytes, ocrLangs(s), o.qr);
-  const regions: Region[] = read.qr.map((q) => ({ label: 'QR code', text: q.text, box: q.box }));
+  const read = await readImage(img.bytes, ocrLangs(s), o.qr, o.faces);
+  const regions: Region[] = [...read.qr.map((q) => ({ label: 'QR code', text: q.text, box: q.box })), ...read.faces.map((f) => faceRegion(f.box, f.score))];
   return { read, text: ocrText(read.ocr, regions, read.width), regions, width: read.width, height: read.height };
 }
 
-/** QR codes are always masked: their content becomes a finding the user can still keep. */
+/** QR codes and faces are masked: each becomes a finding the user can still keep. */
 export function regionHits(t: OcrText, regions: Region[]): Hit[] {
-  return regionSpans(t, regions).map((sp) => ({
-    start: sp.start,
-    end: sp.end,
-    type: 'QR',
-    category: 'custom',
-    detector: 'media.qr',
-    confidence: 1,
-    reason: 'QR code: always masked, whatever it contains',
-    priority: 5,
-    user: 'region',
-  }));
+  const spans = regionSpans(t, regions);
+  return regions.flatMap((g, i) => {
+    const sp = spans[i];
+    if (!sp) return [];
+    const face = g.type === 'FACE';
+    return [
+      {
+        start: sp.start,
+        end: sp.end,
+        type: face ? 'FACE' : 'QR',
+        category: face ? ('personal' as const) : ('custom' as const),
+        detector: face ? 'media.face' : 'media.qr',
+        confidence: face ? Math.round((g.score ?? 1) * 100) / 100 : 1,
+        reason: face ? `face found by the detector (score ${Math.round((g.score ?? 1) * 100)}%)` : 'QR code: always masked, whatever it contains',
+        priority: 5,
+        user: 'region' as const,
+      },
+    ];
+  });
 }
 
 /** Boxes to paint: masked findings (labelled with their placeholder), manual boxes, optionally all text. */

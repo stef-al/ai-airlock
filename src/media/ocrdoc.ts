@@ -20,7 +20,23 @@ export interface Region {
   text: string;
   box: Box;
   label: string;
+  /** QR (default) or FACE */
+  type?: 'QR' | 'FACE';
+  /** detector score of a face */
+  score?: number;
+  /** OCR words inside the region are dropped (a QR code's modules); not for faces, a wrong box must not hide text */
+  swallow?: boolean;
 }
+
+/** A face as a region: a text unique to its place, so two faces never share a placeholder. */
+export const faceRegion = (box: Box, score: number): Region => ({
+  label: 'Face',
+  text: `face at ${Math.round(box[0])},${Math.round(box[1])} (${Math.round(box[2] - box[0])}×${Math.round(box[3] - box[1])} px)`,
+  box,
+  type: 'FACE',
+  score,
+  swallow: false,
+});
 
 /** a token's characters at the end of a line and at the start of the next */
 export const TAIL = /[A-Za-z0-9+/=_.:~%@-]{8,}$/;
@@ -104,7 +120,7 @@ export function ocrText(r: OcrResult, regions: Region[] = [], width = 0): OcrTex
   const lines: number[] = [];
   const byLine = new Map<number, OcrWord[]>();
   // OCR reads the modules of a QR code as garbage words: those are dropped (the code is covered)
-  const inRegion = (w: OcrWord) => regions.some((g) => (w.box[0] + w.box[2]) / 2 >= g.box[0] && (w.box[0] + w.box[2]) / 2 <= g.box[2] && (w.box[1] + w.box[3]) / 2 >= g.box[1] && (w.box[1] + w.box[3]) / 2 <= g.box[3]);
+  const inRegion = (w: OcrWord) => regions.some((g) => g.swallow !== false && (w.box[0] + w.box[2]) / 2 >= g.box[0] && (w.box[0] + w.box[2]) / 2 <= g.box[2] && (w.box[1] + w.box[3]) / 2 >= g.box[1] && (w.box[1] + w.box[3]) / 2 <= g.box[3]);
   for (const w of r.words) if (w.text.trim() && !inRegion(w)) (byLine.get(w.line) ?? byLine.set(w.line, []).get(w.line)!).push(w);
   const order = [...byLine.keys()].sort((a, b) => a - b);
   // Wrapped text has a column edge: several lines end at the same x. Only then can a line that
@@ -156,15 +172,15 @@ export function ocrText(r: OcrResult, regions: Region[] = [], width = 0): OcrTex
   return { text: text.join(''), boxes, lines, cont };
 }
 
-/** Where a region's content starts and ends in the text built by ocrText. */
-export function regionSpans(t: OcrText, regions: Region[]): { start: number; end: number }[] {
-  const out: { start: number; end: number }[] = [];
+/** Where each region's content starts and ends in the text built by ocrText (null when it is not there). */
+export function regionSpans(t: OcrText, regions: Region[]): ({ start: number; end: number } | null)[] {
+  const out: ({ start: number; end: number } | null)[] = regions.map(() => null);
   let from = t.text.length;
   for (let i = regions.length - 1; i >= 0; i--) {
     const line = `${regions[i].label}: ${regions[i].text.replace(/\s+/g, ' ')}`;
     const at = t.text.lastIndexOf(line, from);
     if (at < 0) continue;
-    out.unshift({ start: at + regions[i].label.length + 2, end: at + line.length });
+    out[i] = { start: at + regions[i].label.length + 2, end: at + line.length };
     from = at - 1;
   }
   return out;

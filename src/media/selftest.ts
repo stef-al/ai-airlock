@@ -5,9 +5,8 @@ import { defaultSettings, mergeSettings, type Hit, type Settings } from '../engi
 import { engine } from '../ui/engineClient';
 import type { AnalyzeRes, MaskRes } from '../worker/protocol';
 import { imageBoxes, newImageState, ocrLangs, readImageText, redact, regionHits } from './image';
-import { readImage } from './mediaClient';
+import { ensureFaces, readImage } from './mediaClient';
 import { ocrText } from './ocrdoc';
-import { faceSpike } from './faces';
 import { inventory, openPdf, renderPage } from './pdf';
 import { closePdf, newPdfState, readPdf, redactPdf } from './pdfdoc';
 
@@ -111,7 +110,10 @@ async function pdfInfo(base64: string, render = false) {
   },
   processPdf,
   pdfInfo,
-  async faces(base64: string) {
-    return faceSpike(await createImageBitmap(new Blob([b64(base64) as BlobPart])));
+  /** faces only (no OCR): boxes enlarged for redaction, scores, the TF.js backend, time */
+  async faces(base64: string, opts?: { minTile?: number; maxTiles?: number; minScore?: number }) {
+    const backend = await ensureFaces();
+    const r = await readImage(b64(base64), ['eng'], false, true, false, opts);
+    return { faces: r.faces, backend, ms: r.faceMs ?? 0, size: [r.width, r.height] };
   },
 };

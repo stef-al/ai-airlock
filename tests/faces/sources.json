@@ -1,0 +1,23 @@
+{
+  "about": "Photos for npm run metrics:faces. They are downloaded into a cache outside the repository when the metric runs and are never committed; only their hashes and the face boxes marked by hand (eyebrows to chin, cheek to cheek, in pixels of the original) are kept here.",
+  "groups": {
+    "source": "npm @vladmandic/face-api@1.7.15 (MIT), files package/demo/sample1.jpg … sample6.jpg",
+    "package": "@vladmandic/face-api@1.7.15",
+    "files": {
+      "sample1.jpg": { "sha256": "8ecae4b267b2d3169e06e00c7dee97097aa2a94635d45216f7732a5f4943cb51", "faces": [[410, 420, 600, 590], [830, 480, 1030, 660], [1460, 250, 1680, 440]] },
+      "sample2.jpg": { "sha256": "7d2b60ae6f13bf30f422e04df87451081a02c83de469056f25afb44b7000c691", "faces": [[360, 210, 520, 410], [910, 280, 1060, 445], [1430, 190, 1600, 380]] },
+      "sample3.jpg": { "sha256": "8eb081c9efb14370fa94d9feab9e5fbeafd19a627491853a80c2bf67f7ffa936", "faces": [[590, 410, 770, 575], [1080, 300, 1280, 480], [1510, 370, 1690, 550]] },
+      "sample4.jpg": { "sha256": "729efa5923061d40eb4ed5f267a18cc7b8ba6f852bb2757b16d8b7e4937476fc", "faces": [[270, 250, 420, 400], [650, 150, 810, 300], [990, 230, 1160, 390], [1270, 210, 1420, 380]] },
+      "sample5.jpg": { "sha256": "6d45095ebb182d8f975c0790e0e4eefd86fbb40609cf4b271776d92e12662938", "faces": [[790, 170, 940, 320], [1110, 240, 1260, 400], [600, 480, 770, 640], [1400, 460, 1590, 660], [390, 950, 570, 1150]] },
+      "sample6.jpg": { "sha256": "9baad80f9d5e306fb9b8c0913d44445f1e95848df317530efb03d0934c57ba87", "faces": [[250, 570, 460, 740], [670, 410, 840, 590], [1170, 400, 1370, 570], [1490, 356, 1710, 540]] }
+    }
+  },
+  "portrait": {
+    "source": "PyPI scikit-image 0.26.0 sdist, src/skimage/data/astronaut.png (NASA photograph of Eileen Collins, public domain)",
+    "sdist": "https://files.pythonhosted.org/packages/a1/b4/2528bb43c67d48053a7a649a9666432dc307d66ba02e3a6d5c40f46655df/scikit_image-0.26.0.tar.gz",
+    "member": "scikit_image-0.26.0/src/skimage/data/astronaut.png",
+    "sha256": "88431cd9653ccd539741b555fb0a46b61558b301d4110412b5bc28b5e3ea6cb5",
+    "face": [177, 93, 273, 177],
+    "crop": [125, 15, 325, 225]
+  }
+}

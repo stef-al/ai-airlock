@@ -186,4 +186,4 @@ export function opt<T extends boolean | string | string[]>(s: Settings, key: str
 }
 
 export const DEFAULT_HOST_SUFFIXES = ['internal', 'local', 'lan', 'corp', 'intranet', 'home', 'localdomain', 'private'];
-export const ID_PACK_IDS = ['us-ssn', 'uk-nino', 'cz-sk-birth-number', 'pl-pesel'];
+export const ID_PACK_IDS = ['us-ssn', 'uk-nino', 'cz-sk-birth-number', 'pl-pesel', 'mrz'];

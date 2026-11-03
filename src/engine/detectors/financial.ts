@@ -67,7 +67,7 @@ export const ibanDetector: Detector = {
   category: 'financial',
   types: ['IBAN'],
   defaultScopes: ['prose', 'comment', 'string', 'config'],
-  detect(doc) {
+  detect(doc, _cfg, ctx) {
     const out: Hit[] = [];
     const text = doc.text;
     IBAN_RE.lastIndex = 0;
@@ -95,7 +95,15 @@ export const ibanDetector: Detector = {
           }
         }
       }
-      if (!ok) continue;
+      if (!ok) {
+        // OCR: one misread character breaks mod-97; a well-formed IBAN of the right length still counts
+        const compact = cand.replace(/[\s-]/g, '').toUpperCase();
+        const len = IBAN_LEN[compact.slice(0, 2)];
+        if (ctx.ocr && len && compact.length === len && /^[A-Z]{2}\d{2}[A-Z0-9]+$/.test(compact)) {
+          out.push(mkHit('financial.iban', 'IBAN', m.index, m.index + cand.length, 0.62, `IBAN shape (${compact.slice(0, 2)}, read by OCR, checksum not verified)`, 2, 'iban-ocr'));
+        }
+        continue;
+      }
       out.push(mkHit('financial.iban', 'IBAN', m.index, m.index + cand.length, 0.99, `IBAN with valid mod-97 checksum (${cand.slice(0, 2).toUpperCase()})`, 3, 'iban'));
     }
     return out;
@@ -108,7 +116,7 @@ export const cardDetector: Detector = {
   category: 'financial',
   types: ['CARD', 'CVV', 'CARD_EXPIRY'],
   defaultScopes: ['prose', 'comment', 'string', 'config'],
-  detect(doc, cfg) {
+  detect(doc, cfg, ctx) {
     const out: Hit[] = [];
     const text = doc.text;
     const rank = SENS_RANK[cfg.sensitivity];
@@ -120,12 +128,20 @@ export const cardDetector: Detector = {
       const digits = raw.replace(/\D/g, '');
       if (digits.length < 13 || digits.length > 19) continue;
       if (/^(\d)\1+$/.test(digits)) continue;
-      if (!luhn(digits)) continue;
       const brand = cardBrand(digits);
       if (!brand) continue;
       const grouped = /[ -]/.test(raw);
       const [ls] = lineBounds(text, m.index);
       const cue = CARD_CUE.test(text.slice(Math.max(ls, m.index - 40), m.index));
+      if (!luhn(digits)) {
+        // OCR: a misread digit fails Luhn; a grouped number next to a card cue still counts
+        if (ctx.ocr && cue && grouped) {
+          const h = mkHit('financial.card', 'CARD', m.index, m.index + raw.length, 0.62, `${brand} card number shape next to a card cue (read by OCR, Luhn not verified)`, 2, 'card-ocr');
+          cards.push(h);
+          out.push(h);
+        }
+        continue;
+      }
       if (!grouped && !cue && rank < 2) continue;
       const h = mkHit('financial.card', 'CARD', m.index, m.index + raw.length, cue ? 0.98 : grouped ? 0.92 : 0.7, `${brand} card number (Luhn valid, ${digits.length} digits)`, 3, 'card');
       cards.push(h);

@@ -54,6 +54,16 @@ const STRONG_INTRO = ['my name is', "my name's", 'name is', 'ich heiße', 'mein 
 const WEAK_INTRO = ["I'm", 'I am', 'this is', 'ich bin', 'je suis', 'soy', 'sono', 'jestem', 'jsem'];
 const RE_INTRO_STRONG = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alt(STRONG_INTRO)})[ \\t]+(${PHRASE})`, 'gud');
 const RE_INTRO_WEAK = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alt(WEAK_INTRO)})[ \\t]+(${PHRASE})`, 'gud');
+const BY = [
+  'prepared by', 'written by', 'authored by', 'created by', 'approved by', 'reviewed by', 'signed by', 'submitted by', 'requested by', 'reported by', 'edited by', 'compiled by', 'issued by', 'presented by',
+  'erstellt von', 'geprüft von', 'freigegeben von', 'verfasst von', 'bearbeitet von', 'unterschrieben von', 'angefordert von',
+  'préparé par', 'rédigé par', 'approuvé par', 'validé par', 'signé par', 'créé par',
+  'preparado por', 'elaborado por', 'aprobado por', 'revisado por', 'firmado por', 'creado por',
+  'preparato da', 'redatto da', 'approvato da', 'firmato da', 'creato da',
+  'przygotował', 'przygotowała', 'zatwierdził', 'zatwierdziła', 'podpisał', 'podpisała', 'sporządził', 'sporządziła',
+  'připravil', 'připravila', 'schválil', 'schválila', 'podepsal', 'podepsala', 'vypracoval', 'vypracovala',
+];
+const RE_BY = new RegExp(`(?<![\\p{L}\\p{N}])(?:${alt(BY)})[ \\t]{0,3}:?[ \\t]{1,4}(${PHRASE})`, 'gud');
 const LABELS = ['Owner', 'Author', 'Manager', 'Assignee', 'Reporter', 'Customer', 'Surname', 'First name', 'Last name', 'Vorname', 'Nachname', 'Full name', 'Name', 'Contact person', 'Contact', 'Customer name', 'Employee', 'Ansprechpartnerin', 'Ansprechpartner', 'Kontakt', 'Kunde', 'Mitarbeiterin', 'Mitarbeiter', 'Nom', 'Nombre', 'Imię i nazwisko', 'Jméno'];
 const RE_LABEL = new RegExp(`(?<![\\p{L}\\p{N}])["']?(${alt(LABELS)})["']?[ \\t]*[:=][ \\t]*["']?(${PHRASE})(?=["']?[ \\t]*(?:[,;(}\\]]|\\r?\\n|$))`, 'gud');
 const RE_HEADER = /^[ \t]*(?:From|To|Cc|Bcc|Reply-To|Sender|Von|An|Kopie|De|Para|Od|Komu|Da|À)[ \t]*:[ \t]*(.*)$/gimd;
@@ -175,6 +185,12 @@ export const personDetector: Detector = {
       const g = groupSpan(m, 1)!;
       const r = trimPhrase(t, g[0], m[1], { single: 'first', punct: true, needList: true });
       if (r) add(r.s, r.e, 0.72, 'self-introduction', 'intro');
+    }
+    // "Prepared by Jane Example", "geprüft von …" (one of the words must be a known name)
+    for (const m of matchAll(RE_BY, t)) {
+      const g = groupSpan(m, 1)!;
+      const r = trimPhrase(t, g[0], m[1], { single: 'any', punct: true, needList: true });
+      if (r) add(r.s, r.e, 0.8, `name after '${m[0].slice(0, m[0].length - m[1].length).trim()}'`, 'by');
     }
     // labelled fields
     for (const m of matchAll(RE_LABEL, t)) {

@@ -46,7 +46,8 @@ export const emailDetector: Detector = {
 // phone numbers
 // ---------------------------------------------------------------------------------------------
 
-const PHONE_CAND = /(?<![\w.+/-])(?:\+|00)?\(?\d[\d\s().-]{5,22}\d(?![\w-]|\.\d)/g;
+// a number never spans lines (two numbers on consecutive lines are two numbers)
+const PHONE_CAND = /(?<![\w.+/-])(?:\+|00)?\(?\d[\d \t().-]{5,22}\d(?![\w-]|\.\d)/g;
 const PHONE_CUE = /(?:tel(?:ephone|efon|éfono|efono)?|phone|mobile|mob\.?|cell|fax|call|handy|whatsapp|téléphone|telefono|teléfono|telefon|kontakt|contact|rufnummer|numéro|numero|número|phone number|kom[óo]rka|mobil)\b[\s:.#=-]{0,6}$/i;
 const DATE_LIKE = /^\d{4}[-./]\d{1,2}[-./]\d{1,2}$|^\d{1,2}[-./]\d{1,2}[-./]\d{2,4}$|^\d{1,2}[:.]\d{2}[:.]\d{2}/;
 const DATE_START = /^(?:\d{4}[-/.]\d{1,2}[-/.]\d{1,2}|\d{1,2}[-/.]\d{1,2}[-/.]\d{2,4})(?!\d)/;
@@ -77,9 +78,9 @@ export const phoneDetector: Detector = {
       if (digits.length < 7 || digits.length > 15) continue;
       if (DATE_LIKE.test(cand) || IP_LIKE.test(cand) || DATE_START.test(cand)) continue;
       if (/^:\d/.test(text.slice(s + m[0].length, s + m[0].length + 2)) || text[s - 1] === ':') continue;
-      // hex dumps: <Buffer ab 90 78 56 34 12>, "de ad 12 34 56 78 9a"
-      const hexPrev = /(?:^|\s)([0-9A-Fa-f]{2})\s$/.exec(text.slice(Math.max(0, s - 4), s));
-      const hexNext = /^\s([0-9A-Fa-f]{2})(?=\s|>|$)/.exec(text.slice(s + cand.length, s + cand.length + 4));
+      // hex dumps: <Buffer ab 90 78 56 34 12>, "de ad 12 34 56 78 9a" (neighbours on the same line only)
+      const hexPrev = /(?:^|[ \t])([0-9A-Fa-f]{2})[ \t]$/.exec(text.slice(Math.max(0, s - 4), s));
+      const hexNext = /^[ \t]([0-9A-Fa-f]{2})(?=[ \t>]|$)/.exec(text.slice(s + cand.length, s + cand.length + 4));
       if ((hexPrev && /[A-Fa-f]/.test(hexPrev[1])) || (hexNext && /[A-Fa-f]/.test(hexNext[1])) || /<Buffer|0x[0-9A-Fa-f]*\s*$/.test(text.slice(Math.max(0, s - 12), s))) continue;
       const intl = /^(?:\+|00)/.test(cand);
       const hasSep = /[\s().-]/.test(cand);

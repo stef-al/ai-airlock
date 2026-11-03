@@ -5,6 +5,9 @@ import {
 } from '../engine/light';
 import type { RegexTestRes } from '../worker/protocol';
 import { CancelledError, engine } from './engineClient';
+import { OCR_LANGS } from '../media/assetList';
+import { imageOptions, OCR_LANG_NAMES, ocrLangs, PDF_DPIS, pdfOptions } from '../media/options';
+import { MEDIA } from './media';
 import { downloadText, parseTerms } from './util';
 
 interface Props {
@@ -26,6 +29,71 @@ function Lines({ value, onCommit, rows = 5, label, placeholder }: { value: strin
   useEffect(() => setText(value.join('\n')), [value]);
   return (
     <textarea aria-label={label} className="lines" rows={rows} value={text} placeholder={placeholder} spellCheck={false} onChange={(e) => setText(e.target.value)} onBlur={() => onCommit(text.split('\n').map((l) => l.trim()).filter(Boolean))} />
+  );
+}
+
+/** Images (airlock-media.html only): OCR languages, how boxes are painted, checks. */
+function ImageSettings({ s, up }: { s: Settings; up: (f: (x: Settings) => Settings) => void }) {
+  const langs = ocrLangs(s);
+  const setOpt = (k: string, v: boolean | string | string[]) => up((x) => ({ ...x, options: { ...x.options, [k]: v } }));
+  const o = imageOptions(s);
+  const po = pdfOptions(s);
+  return (
+    <section className="panel">
+      <h2>Images and PDF</h2>
+      <div className="row wrap">
+        <span>Text languages (each one adds reading time):</span>
+        {OCR_LANGS.map((l) => (
+          <label key={l}>
+            <input
+              type="checkbox"
+              checked={langs.includes(l)}
+              disabled={langs.length === 1 && langs[0] === l}
+              onChange={(e) => setOpt('ocrLangs', e.target.checked ? [...langs, l] : langs.filter((x) => x !== l))}
+            />{' '}
+            {OCR_LANG_NAMES[l]}
+          </label>
+        ))}
+      </div>
+      <div className="row wrap">
+        <label><input type="checkbox" checked={o.labels} onChange={(e) => setOpt('imgLabels', e.target.checked)} /> write the placeholder into each box (the chatbot can refer to it)</label>
+        <label>
+          margin around text{' '}
+          <select value={String(o.pad)} onChange={(e) => setOpt('imgPad', e.target.value)}>
+            <option value="0.1">tight</option>
+            <option value="0.2">normal</option>
+            <option value="0.35">generous</option>
+          </select>
+        </label>
+        <label><input type="checkbox" checked={o.allText} onChange={(e) => setOpt('imgAllText', e.target.checked)} /> cover all text, not only findings</label>
+        <label><input type="checkbox" checked={o.qr} onChange={(e) => setOpt('imgQr', e.target.checked)} /> find and cover QR codes</label>
+        <label><input type="checkbox" checked={o.faces} onChange={(e) => setOpt('imgFaces', e.target.checked)} /> find and cover faces</label>
+        <label><input type="checkbox" checked={o.verify} onChange={(e) => setOpt('imgVerify', e.target.checked)} /> read the redacted copy again and cover what is still readable</label>
+        <label><input type="checkbox" checked={o.review} onChange={(e) => setOpt('imgReview', e.target.checked)} /> require a tick before an image can be copied</label>
+      </div>
+      <div className="row wrap">
+        <label>
+          PDF copy resolution{' '}
+          <select value={String(po.dpi)} onChange={(e) => setOpt('pdfDpi', e.target.value)}>
+            {PDF_DPIS.map((d) => <option key={d} value={String(d)}>{d} DPI{d === 150 ? ' (default)' : d === 100 ? ' (smaller file)' : ' (sharper)'}</option>)}
+          </select>
+        </label>
+        <label>
+          OCR of PDF pages{' '}
+          <select value={po.ocr} onChange={(e) => setOpt('pdfOcr', e.target.value)}>
+            <option value="auto">pages with images or without text</option>
+            <option value="always">every page (slower)</option>
+          </select>
+        </label>
+        <label>
+          read at most{' '}
+          <select value={String(po.maxPages)} onChange={(e) => setOpt('pdfMaxPages', e.target.value)}>
+            {[...new Set([20, 50, 100, 200, 500, po.maxPages])].sort((a, b) => a - b).map((n) => <option key={n} value={String(n)}>{n} pages</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="small muted">Faces are found by a detector that runs in this page (frontal and turned faces from about 15 px; not every face): check the copy. Signatures, handwriting and logos are not found: drag over them in the review. The redacted copy is a new file without metadata (location, camera, author). A redacted PDF is made of page images: no text layer, form fields, comments, links, attachments or scripts survive.</p>
+    </section>
   );
 }
 
@@ -165,6 +233,8 @@ export function SettingsView({ settings: s, setSettings, profiles, setProfiles, 
           </tbody>
         </table>
       </section>
+
+      {MEDIA && <ImageSettings s={s} up={up} />}
 
       <section className="panel">
         <h2>Network, names and IDs</h2>

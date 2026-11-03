@@ -145,6 +145,19 @@ function fromCall(doc: Doc, p: Pair, an: KeyAnalyzer): Hit | null {
   return null;
 }
 
+/**
+ * A word that can only be a secret: 8 to 64 characters, at least three of lower case, upper case,
+ * digits and symbols (a digit among them), and not a path, host, version, reference or identifier.
+ */
+export function strongSecretShape(v: string): boolean {
+  if (v.length < 8 || v.length > 64 || /[\s/\\]/.test(v) || /^[$%{<[(]/.test(v) || /\.\w/.test(v)) return false;
+  if (!/\d/.test(v)) return false;
+  const classes = [/[a-z]/, /[A-Z]/, /\d/, /[^A-Za-z0-9]/].filter((r) => r.test(v)).length;
+  if (classes < 3) return false;
+  // CONSTANT_NAME_2, snake_case_v2: identifiers, not secrets
+  return !/^[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+$/.test(v);
+}
+
 function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<number>): Hit[] {
   const t = doc.text;
   const n = t.length;
@@ -210,6 +223,7 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     const sym = /^(?::=|=>|===|==|=|:)/.exec(t.slice(q, q + 3));
     let vstart = -1;
     let loose = false;
+    let direct = false;
     if (sym) {
       if (sym[0] === ':' && (t[q + 1] === ':' || t[q + 1] === '/')) continue;
       let a = q + sym[0].length;
@@ -229,6 +243,14 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
       if (pc) {
         vstart = we + pc[0].length;
         loose = true;
+      } else if (ki.strength !== 'weak') {
+        // "rotate the password Cm7!xYz2q", "password Hdr!Pw-77": no connector, but the next word can only be a secret
+        const nx = /^[ \t]+(\S{8,64})/.exec(t.slice(we, we + 80));
+        if (nx && strongSecretShape(nx[1].replace(/[.,;:!?)\]'"]+$/, ''))) {
+          vstart = we + nx[0].length - nx[1].length;
+          loose = true;
+          direct = true;
+        }
       }
     }
     if (vstart < 0) continue;
@@ -243,7 +265,8 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     if (skip.has(val.s)) continue;
     const value = t.slice(val.s, val.e);
     // "user / pass: admin / secret": the first value is the user name, handled by the user/pass rule
-    if (!val.quoted && /^\s+[/|]\s+\S/.test(t.slice(val.e, val.e + 6))) continue;
+    // (on the same line: a table row below starts with a pipe too)
+    if (!val.quoted && /^[ \t]+[/|][ \t]+\S/.test(t.slice(val.e, val.e + 6))) continue;
     // sentences: "Password: please enter ..." in free text
     if (!val.quoted && (!structured || segAt(doc, val.s)?.scope !== 'config')) {
       const rest = t.slice(val.e, val.e + 24);
@@ -273,14 +296,14 @@ function scanText(doc: Doc, an: KeyAnalyzer, aggressive: boolean, skip: Set<numb
     });
     if (!v.ok) continue;
     if (!aggressive && ki.strength === 'weak' && v.conf < 0.6) continue;
-    const how = loose ? `value stated after '${t.slice(kStart, kEnd)}' in text` : flag ? `value of command-line flag '${t.slice(segStart, we)}'` : `literal assigned to '${word}'`;
-    out.push(mkHit(ID, ki.type, vs, vs + text.length, v.conf, how, 2, loose ? 'prose' : flag ? 'cli-flag' : 'text-kv'));
+    const how = direct ? `password-like word right after '${t.slice(kStart, kEnd)}'` : loose ? `value stated after '${t.slice(kStart, kEnd)}' in text` : flag ? `value of command-line flag '${t.slice(segStart, we)}'` : `literal assigned to '${word}'`;
+    out.push(mkHit(ID, ki.type, vs, vs + text.length, direct ? Math.min(v.conf, 0.78) : v.conf, how, 2, loose ? 'prose' : flag ? 'cli-flag' : 'text-kv'));
   }
   return out;
 }
 
 const USER_PASS =
-  /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
+  /\b(?:user(?:name)?|login|benutzer(?:name)?|utilisateur|usuario|utente|u[zž]ivatel)\s*[/|]\s*(?:pass(?:word)?|pw|pwd|passwort|kennwort|mot de passe|contrase[ñn]a|has[lł]o|heslo)(?![\p{L}\p{N}])\s*[:=\-]?\s*([^\s/|]{1,64})\s*[/|]\s*([^\s/|]{3,64})/giu;
 const LOGIN_PAIR =
   /\b(?:logins?|creds?|credentials|zugangsdaten|zugang|access|account|identifiants|credenciales|credenziali|dane logowania|přihlašovací údaje)\b[^\n]{0,60}?(?:\bis\b|\bare\b|\bist\b|\bsind\b|:|=)\s*['"`]?([\w.@-]{2,40})['"`]?\s*[/|]\s*['"`]?([^\s/|'"`]{4,64})/gi;
 const B64_CRED =
@@ -294,6 +317,12 @@ const HCL_VAR = /\bvariable\s+"([^"\n]{1,80})"\s*\{([^{}]{0,800})\}/g;
 /** Windows: setx API_KEY "value" (no '=' between name and value) */
 const SETX = /(?:^|[\s;&|(])setx\s+([A-Za-z_][\w.]{0,80})\s+(?:"([^"\n]*)"|([^\s"]+))/gim;
 
+// name/value pairs written out: "name": "DB_PASSWORD", "value": "x" · key="ServicePassword" value="x" ·
+// - name: API_KEY ⏎ value: x (Kubernetes env, .NET appSettings, CI configs, also in text)
+const NAME_VALUE = /\b(?:name|key|Name|Key|variable)["']?\s{0,4}[:=]\s{0,4}["']?([A-Za-z_][\w.-]{1,60})["']?\s{0,4}[,;]?[ \t]{0,8}(?:\r?\n[ \t]{0,40}-?[ \t]{0,4})?["']?(?:value|Value|val)["']?\s{0,4}[:=]\s{0,4}(["']?)([^"'\s,;}<>]{1,200})\2/g;
+// <password>x</password>, <apiKey>x</apiKey>
+const XML_ELEMENT = /<([A-Za-z_][\w.-]{0,40})>([^<\n]{1,200})<\/\1>/g;
+
 function extra(doc: Doc, skip: Set<number>, an: KeyAnalyzer): Hit[] {
   const t = doc.text;
   const out: Hit[] = [];
@@ -304,6 +333,20 @@ function extra(doc: Doc, skip: Set<number>, an: KeyAnalyzer): Hit[] {
     if (v.ok) out.push(mkHit(ID, ki.type, start, start + raw.length, v.conf, reason, 2, rule));
   };
   let r: RegExpExecArray | null;
+  if (/value/i.test(t)) {
+    NAME_VALUE.lastIndex = 0;
+    while ((r = NAME_VALUE.exec(t))) {
+      const raw = r[3];
+      keyed(r[1], raw, r.index + r[0].length - raw.length - r[2].length, !!r[2], `value of the entry named '${r[1]}'`, 'name-value');
+    }
+  }
+  if (t.includes('</')) {
+    XML_ELEMENT.lastIndex = 0;
+    while ((r = XML_ELEMENT.exec(t))) {
+      const raw = r[2].trim();
+      if (raw) keyed(r[1], raw, r.index + r[1].length + 2 + r[2].indexOf(raw), false, `content of the <${r[1]}> element`, 'xml-element');
+    }
+  }
   REF_DEFAULT.lastIndex = 0;
   while ((r = REF_DEFAULT.exec(t))) {
     const def = r[3];

@@ -1,5 +1,9 @@
 import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type ReactNode } from 'react';
 import type { Hit, Settings } from '../engine/light';
+import { ImageReview, type ImageOps } from './ImageReview';
+import { MEDIA } from './media';
+import { OfficeReview, type OfficeOps } from './OfficeReview';
+import { PdfReview, type PdfOps } from './PdfReview';
 import { hitKey, selectedHits, type DocState } from './types';
 import { copyText } from './util';
 
@@ -21,6 +25,11 @@ interface Props {
   onMaskAlways(d: DocState, start: number, end: number, type: string): void;
   onRetry(id: string): void;
   onCancel(): void;
+  imageOps: ImageOps;
+  pdfOps: PdfOps;
+  officeOps: OfficeOps;
+  /** masked text to copy (embedded images swapped for their redacted copy) */
+  outputOf(d: DocState): string;
 }
 
 const LOW = 0.7;
@@ -168,14 +177,34 @@ export function MaskView(p: Props) {
         <input ref={fileRef} type="file" multiple hidden onChange={(e) => e.target.files && p.onFiles(e.target.files)} />
         <div className="grow" />
         {p.busy && <button onClick={p.onCancel}>Cancel</button>}
-        <span className="small muted">{d.status === 'analyzing' ? 'detecting…' : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}</span>
+        <span className="small muted">
+          {d.pdf?.progress ? d.pdf.progress : d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.kind === 'pdf' ? (d.pdf?.inv ? `PDF, ${d.pdf.inv.pages} page${d.pdf.inv.pages === 1 ? '' : 's'}` : '') : d.kind === 'office' ? (d.office?.file ? `${{ docx: 'Word', pptx: 'PowerPoint', xlsx: 'Excel' }[d.office.file.kind]} file` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
+        </span>
       </div>
 
       <div className="summary">
-        {counts.length === 0 && <span className="muted small">{d.status === 'ready' ? 'Nothing sensitive found.' : 'Paste or drop text, config, code or logs below.'}</span>}
+        {counts.length === 0 && (
+          <span className="muted small">
+            {d.status === 'ready'
+              ? d.kind === 'image'
+                ? 'No sensitive text found in the image. Check it yourself and cover anything else by dragging.'
+                : d.kind === 'pdf'
+                  ? 'No sensitive text found in the PDF. Check the pages yourself and cover anything else by dragging.'
+                  : d.kind === 'office'
+                    ? 'No sensitive text found in the file. Its pictures are checked one by one.'
+                    : 'Nothing sensitive found.'
+              : d.kind === 'image'
+                ? 'Reading the image…'
+                : d.kind === 'pdf'
+                  ? d.pdf?.locked ? 'The PDF needs its password.' : 'Reading the PDF…'
+                  : d.kind === 'office'
+                    ? 'Reading the file…'
+                    : 'Paste or drop text, config, code or logs below, or paste a screenshot or a PDF.'}
+          </span>
+        )}
         {counts.map(([t, n]) => <span key={t} className="chip">{t} <b>{n}</b></span>)}
         {low.length > 0 && <button className={lowOnly ? 'chip warn on' : 'chip warn'} onClick={() => setLowOnly(!lowOnly)}>{low.length} to review (low confidence)</button>}
-        {res && (
+        {res && d.kind === 'text' && (
           <span className={res.guard.ok && res.skipped.length === 0 ? 'chip ok' : 'chip warn'} title={res.guard.issues.join('\n')}>
             {res.guard.checked ? 'Structure guard: ' : 'Structure guard: n/a (plain text) · '}
             {res.guard.ok ? (res.skipped.length ? `OK, ${res.skipped.length} skipped for review` : 'OK') : 'FAILED'}
@@ -183,16 +212,24 @@ export function MaskView(p: Props) {
         )}
       </div>
 
+      {!MEDIA && counts.some(([t]) => t === 'IMAGE') && (
+        <div className="notice">Embedded images are replaced by IMAGE_n placeholders. To send a redacted copy of them instead, open the text in airlock-media.html.</div>
+      )}
       {d.error && <div className="notice error">{d.error} <button className="link" onClick={() => p.onRetry(d.id)}>Detect again</button></div>}
 
+      {d.kind === 'image' ? (
+        <ImageReview d={d} settings={p.settings} sel={sel} setSel={setSel} ops={p.imageOps} onKeepOnce={p.onKeepOnce} onUnkeep={p.onUnkeep} />
+      ) : d.kind === 'pdf' ? (
+        <PdfReview key={d.id} d={d} settings={p.settings} sel={sel} setSel={setSel} ops={p.pdfOps} outputOf={p.outputOf} onKeepOnce={p.onKeepOnce} onUnkeep={p.onUnkeep} />
+      ) : (
       <div className="cols">
         <section className={drag ? 'panel drop' : 'panel'} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
           <div className="panelhead">
             <h2>Original</h2>
             <div className="grow" />
-            {d.text && <button onClick={() => p.onEditing(d.id, !d.editing)}>{d.editing ? 'Review highlights' : 'Edit text'}</button>}
+            {d.text && d.kind === 'text' && <button onClick={() => p.onEditing(d.id, !d.editing)}>{d.editing ? 'Review highlights' : 'Edit text'}</button>}
           </div>
-          {d.editing || !d.text ? (
+          {d.kind === 'text' && (d.editing || !d.text) ? (
             <textarea
               className="editor"
               aria-label="Text to mask"
@@ -205,7 +242,7 @@ export function MaskView(p: Props) {
           ) : (
             <pre className="review" onMouseUp={onMouseUp}>{reviewNodes}</pre>
           )}
-          {totalMore && !d.editing && <button className="more" onClick={() => setLimit(limit + 2000)}>Show more lines ({Math.round((100 * end) / text.length)}% shown; the masked output always covers everything)</button>}
+          {totalMore && (!d.editing || d.kind !== 'text') && <button className="more" onClick={() => setLimit(limit + 2000)}>Show more lines ({Math.round((100 * end) / text.length)}% shown; the masked output always covers everything)</button>}
           {range && !d.editing && (
             <div className="selbar">
               <span className="mono">“{text.slice(range.start, range.end).slice(0, 40)}”</span>
@@ -232,11 +269,11 @@ export function MaskView(p: Props) {
             <h2>Masked output</h2>
             <div className="grow" />
             <span className="small muted" aria-live="polite">{copied}</span>
-            <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', res.output)}>Copy masked</button>
+            <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', p.outputOf(d))}>Copy masked</button>
             {p.docs.length > 1 && (
               <button
-                disabled={!p.docs.every((x) => !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
-                onClick={() => copy('Copied all', p.docs.filter((x) => x.text.trim()).map((x) => `=== ${x.name} ===\n${x.result?.output ?? ''}`).join('\n\n'))}
+                disabled={!p.docs.every((x) => x.kind === 'image' || !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
+                onClick={() => copy('Copied all', p.docs.filter((x) => x.kind !== 'image' && x.text.trim()).map((x) => `=== ${x.name} ===\n${p.outputOf(x)}`).join('\n\n'))}
               >
                 Copy all
               </button>
@@ -251,6 +288,9 @@ export function MaskView(p: Props) {
           )}
         </section>
       </div>
+      )}
+
+      {d.kind === 'office' && d.office && <OfficeReview d={d} ops={p.officeOps} fresh={fresh} />}
 
       {all.length > 0 && (
         <section className="panel">

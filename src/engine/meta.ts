@@ -29,7 +29,8 @@ export const DETECTOR_META: DetectorMeta[] = [
   { id: 'network.host', label: 'Hostnames under internal suffixes and company domains', category: 'network', defaultScopes: S4, tier: 2 },
   { id: 'paths.username', label: 'User names inside file paths (/home/jsmith, C:\\Users\\jsmith)', category: 'personal', defaultScopes: S4, tier: 2 },
   { id: 'personal.dob', label: 'Dates of birth next to a birth cue (DOB, geboren, né le…)', category: 'personal', defaultScopes: S4, tier: 2 },
-  { id: 'ids.national', label: 'National ID numbers with checksums (US SSN, UK NI, CZ/SK birth number, PL PESEL)', category: 'personal', defaultScopes: S4, tier: 2 },
+  { id: 'ids.national', label: 'National ID numbers with checksums (US SSN, UK NI, CZ/SK birth number, PL PESEL, passport/ID MRZ)', category: 'personal', defaultScopes: S4, tier: 2 },
+  { id: 'media.embedded', label: 'Images embedded in text (data: URIs)', category: 'custom', defaultScopes: S4, tier: 1 },
 ];
 
 /** National-ID packs (kept in sync with detectors/ids by a test). */
@@ -38,4 +39,5 @@ export const ID_PACK_META: { id: string; label: string }[] = [
   { id: 'uk-nino', label: 'UK National Insurance number' },
   { id: 'cz-sk-birth-number', label: 'Czech / Slovak birth number (rodné číslo)' },
   { id: 'pl-pesel', label: 'Polish PESEL' },
+  { id: 'mrz', label: 'Passport / ID machine-readable zone (MRZ)' },
 ];

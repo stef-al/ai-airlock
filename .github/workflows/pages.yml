@@ -22,8 +22,8 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
-      - name: Stage the single file as the site root
-        run: mkdir _site && cp dist/airlock.html _site/index.html
+      - name: Stage both files (text only as the site root, images and documents next to it)
+        run: mkdir _site && cp dist/airlock.html _site/index.html && cp dist/airlock-media.html _site/
       - uses: actions/upload-pages-artifact@v3
         with:
           path: _site

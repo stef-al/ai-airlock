@@ -119,6 +119,16 @@ describe('structure guard', () => {
     expect(r.guard.ok).toBe(true);
     expect(r.guard.issues.join()).toContain('skipped');
   });
+  it('reads user / password pairs, not table headers that name them', () => {
+    const pw = ['Qx7', '!mZ2', 'kL9'].join('');
+    expect(run(`user/pass: admin / ${pw}`, {}, { format: 'prose' }).output).toBe('user/pass: admin / [PASSWORD_1]');
+    expect(run('User | Password | Notes', {}, { format: 'prose' }).output).toBe('User | Password | Notes');
+    // under column letters (a table from an Office file or a PDF) the first row names the columns and stays maskable
+    const t = `| A | B |\n| --- | --- |\n| Owner | Jane Example |\n| Email | jane@initech-corp.net |\n| Phone | ext 12 |`;
+    expect(run(t).output).toBe('| A | B |\n| --- | --- |\n| Owner | [PERSON_1] |\n| Email | [EMAIL_1] |\n| Phone | ext 12 |');
+    const h = `| A | B |\n| --- | --- |\n| Account | Password |\n| backup | ${pw} |`;
+    expect(run(h).output).toBe('| A | B |\n| --- | --- |\n| Account | Password |\n| backup | [PASSWORD_1] |');
+  });
   it('never touches keys, tags, headers or identifiers', () => {
     const cases: [string, string][] = [
       ['{"password": "hunter22x", "user": "bob"}', 'json'],
@@ -260,6 +270,7 @@ describe('robustness', () => {
       '-----BEGIN RSA PRIVATE KEY-----'.repeat(2000), 'DE89 '.repeat(big / 10), '4111 '.repeat(big / 10), 'password is '.repeat(big / 20),
       'eyJ'.repeat(big / 6), '$2a$10$'.repeat(big / 14), '['.repeat(big / 2), '\n'.repeat(big), 'x='.repeat(big / 2),
       // format sniffing
+      'prepared by' + ' '.repeat(big) + '!', '| a | b |\n'.repeat(big / 10), 'the password '.repeat(big / 13),
       'type a<'.repeat(big / 7), 'const '.repeat(big / 6), '[a]('.repeat(big / 4), 'a('.repeat(big / 2), '- a: '.repeat(big / 5),
     ];
     for (const s of inputs) {

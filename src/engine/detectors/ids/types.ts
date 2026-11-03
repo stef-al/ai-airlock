@@ -21,8 +21,11 @@ export interface IdPack {
   cue?: RegExp;
   /** key names (JSON/YAML/CSV header…) that hold this ID */
   keyCue?: RegExp;
-  /** return null to reject. `cue` is true when a cue word is right before the match */
-  validate(m: RegExpExecArray, cue: boolean): IdMatch | null;
+  /**
+   * Return null to reject. `cue` is true when a cue word is right before the match; `ocr` when the
+   * text was read from an image, where a checksum can fail on one misread digit.
+   */
+  validate(m: RegExpExecArray, cue: boolean, ocr: boolean): IdMatch | null;
 }
 
 export const digitsOf = (s: string) => s.replace(/\D/g, '');

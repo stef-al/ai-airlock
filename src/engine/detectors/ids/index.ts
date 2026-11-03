@@ -2,14 +2,15 @@ import { ID_PACK_IDS, opt } from '../../settings';
 import { SENS_RANK, type Detector, type Hit } from '../../types';
 import { groupSpan, matchAll } from '../../util';
 import { mkHit } from '../helpers';
+import { mrz } from './mrz';
 import { czSkBirthNumber, plPesel, ukNino, usSsn } from './packs';
 import type { IdPack } from './types';
 
-export const ID_PACKS: IdPack[] = [usSsn, ukNino, czSkBirthNumber, plPesel];
+export const ID_PACKS: IdPack[] = [usSsn, ukNino, czSkBirthNumber, plPesel, mrz];
 
 export const idsDetector: Detector = {
   id: 'ids.national',
-  label: 'National ID numbers with checksums (US SSN, UK NI, CZ/SK birth number, PL PESEL)',
+  label: 'National ID numbers with checksums (US SSN, UK NI, CZ/SK birth number, PL PESEL, passport/ID MRZ)',
   category: 'personal',
   types: ID_PACKS.map((p) => p.type),
   defaultScopes: ['prose', 'comment', 'string', 'config'],
@@ -46,7 +47,7 @@ export const idsDetector: Detector = {
           const key = keyOf(m.index, end) ?? headers.get(m.index);
           cue = !!key && p.keyCue.test(key.trim());
         }
-        const v = p.validate(m, cue);
+        const v = p.validate(m, cue, !!ctx.ocr);
         if (!v) continue;
         if (v.needsCue && rank < SENS_RANK.aggressive) continue;
         if (rank < SENS_RANK.balanced && v.conf < 0.9) continue;

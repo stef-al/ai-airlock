@@ -147,14 +147,26 @@ const IBAN_H = /\biban\b/i;
 const CARD_H = /card[\s_-]?(?:number|no|num)|credit[\s_-]?card|\bcc[\s_-]?(?:number|num|no)\b|\bpan\b|kreditkarte|carte bancaire/i;
 const DOB_H = /birth|\bdob\b|geburt|naissance|nacimiento|nascita|urodzen|narozen/i;
 const CVV_H = /\b(?:cvv2?|cvc2?|csc)\b/i;
+const NAME_H = /^(?:name|nom|nombre|nazwa|jméno|contact|kontakt|contacto|ansprechpartner(?:in)?)$/i;
 const PERSONISH = /^\p{Lu}[\p{L}'.-]+(?:\s+\p{Lu}[\p{L}'.-]+){0,3}$/u;
 const EMPTY_CELL = /^(?:-+|n\/?a|null|none|nil|tbd|\?+|—|–|)$/i;
+
+/** a field name, as the first column of a form holds them (Email, Phone, Password:) */
+function isLabel(v: string, settings: Settings): boolean {
+  const s = v.endsWith(':') ? v.slice(0, -1).trimEnd() : v;
+  if (!/^\p{L}[\p{L} .'/-]{0,39}$/u.test(s)) return false;
+  if ([EMAIL_H, IBAN_H, DOB_H, CVV_H, CARD_H, PHONE_H, CLIENT_H, PERSON_H, NAME_H].some((r) => r.test(s))) return true;
+  const ki = analyzerFor(settings).analyze(s);
+  return !!ki && !ki.negated;
+}
 
 export function classifyColumn(col: Column, text: string, settings: Settings): { type: string; conf: number; why: string } | null {
   const h = col.header.trim();
   const sample = col.cells.slice(0, 200).map((c) => text.slice(c.start, c.end).trim()).filter((v) => v && !EMPTY_CELL.test(v));
   const frac = (f: (v: string) => boolean) => (sample.length ? sample.filter(f).length / sample.length : 0);
   if (sample.length === 0) return null;
+  // a column of field names is the left side of a form, whatever its header says
+  if (sample.length >= 2 && frac((v) => isLabel(v, settings)) >= 0.5) return null;
   if (EMAIL_H.test(h)) return { type: 'EMAIL', conf: 0.93, why: 'header' };
   if (IBAN_H.test(h)) return { type: 'IBAN', conf: 0.93, why: 'header' };
   if (DOB_H.test(h)) return { type: 'DOB', conf: 0.9, why: 'header' };
@@ -165,11 +177,14 @@ export function classifyColumn(col: Column, text: string, settings: Settings): {
   if (PHONE_H.test(h)) return { type: 'PHONE', conf: 0.9, why: 'header' };
   if (CLIENT_H.test(h)) return { type: 'CLIENT', conf: 0.9, why: 'header' };
   if (PERSON_H.test(h)) return { type: 'PERSON', conf: 0.9, why: 'header' };
-  if (/^(?:name|nom|nombre|nazwa|jméno|contact|kontakt|contacto|ansprechpartner(?:in)?)$/i.test(h) && frac((v) => PERSONISH.test(v)) >= 0.7 && sample.length >= 2) return { type: 'PERSON', conf: 0.75, why: 'header "name" and person-like values' };
+  if (NAME_H.test(h) && frac((v) => PERSONISH.test(v)) >= 0.7 && sample.length >= 2) return { type: 'PERSON', conf: 0.75, why: 'header "name" and person-like values' };
+  const isCard = (v: string) => luhn(v.replace(/\D/g, '')) && !!cardBrand(v.replace(/\D/g, ''));
+  // a header that only says "card" (Card, Cards, Firmenkarte…) needs values that are card numbers
+  if (/card|karte|carte|tarjeta|karta/i.test(h) && frac(isCard) >= 0.5) return { type: 'CARD', conf: 0.9, why: 'header and card numbers' };
   if (sample.length >= 2) {
     if (frac(isEmail) >= 0.7) return { type: 'EMAIL', conf: 0.85, why: 'values' };
     if (frac(ibanValid) >= 0.7) return { type: 'IBAN', conf: 0.9, why: 'values' };
-    if (frac((v) => luhn(v.replace(/\D/g, '')) && !!cardBrand(v.replace(/\D/g, ''))) >= 0.7) return { type: 'CARD', conf: 0.88, why: 'values' };
+    if (frac(isCard) >= 0.7) return { type: 'CARD', conf: 0.88, why: 'values' };
   }
   return null;
 }

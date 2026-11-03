@@ -627,6 +627,7 @@ function About() {
       <h2>How it works</h2>
       <ol>
         <li><b>Mask</b>: paste text or drop files. Findings are highlighted; click one to see why it was flagged and to keep it. Copy the masked text into your chatbot.</li>
+        {MEDIA && <li><b>Pictures and documents</b>: screenshots, photos, PDF, Word, PowerPoint and Excel files get a redacted copy as well: findings, QR codes and faces covered by labelled boxes, metadata removed. Check the copy, then download it or copy the masked text.</li>}
         <li><b>Restore</b>: paste the chatbot's reply. Placeholders are replaced by the original values again.</li>
       </ol>
       <h2>Privacy</h2>
@@ -638,7 +639,7 @@ function About() {
       <h2>Limits</h2>
       <ul>
         <li>Detection is rule-based. It cannot know that an ordinary word is a secret or a name unless a cue, a format or your lists say so. Always read the masked text before pasting.</li>
-        <li>Names and organisations without cues and postal addresses are not covered yet. Images, PDF and Office files need airlock-media.html.</li>
+        <li>Names and organisations without cues and postal addresses are not covered yet. {MEDIA ? 'OCR can misread characters, faces are found but not always, and signatures, handwriting and logos are not found: review every copy.' : 'Images, PDF and Office files need airlock-media.html.'}</li>
         <li>Chatbots may rewrite or drop placeholders; the restore report lists what did not come back.</li>
       </ul>
     </section>

@@ -47,4 +47,5 @@ Add a detector: write it in `engine/detectors/`, add it to `BASE_DETECTORS` (eng
 ## Rules of the road
 - Never change structure: keys, tags, identifiers, CSV headers stay out of reach unless the user enables the `identifier`/`key` scope; placeholders must be valid where they land (`hostOf` + `candidatesFor`).
 - Regexes must be linear (bounded quantifiers, lookbehind anchors); `tests/engine.test.ts` throws hostile input at every detector.
-- Never commit realistic secrets in tests; use macros.
+- Never commit realistic secrets in tests; use macros. Never commit photos of people: `metrics:faces` downloads its test photos at run time (hashes and boxes only in `tests/faces/sources.json`).
+- The media file never fetches: every engine, model and language file is an embedded data block, and libraries that want to fetch get their bytes from memory (`BinaryDataFactory` for pdf.js, `platform.fetch` for TF.js, `wasmBinary` for Tesseract).

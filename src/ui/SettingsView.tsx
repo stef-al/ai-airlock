@@ -6,7 +6,7 @@ import {
 import type { RegexTestRes } from '../worker/protocol';
 import { CancelledError, engine } from './engineClient';
 import { OCR_LANGS } from '../media/assetList';
-import { imageOptions, OCR_LANG_NAMES, ocrLangs } from '../media/options';
+import { imageOptions, OCR_LANG_NAMES, ocrLangs, PDF_DPIS, pdfOptions } from '../media/options';
 import { MEDIA } from './media';
 import { downloadText, parseTerms } from './util';
 
@@ -37,9 +37,10 @@ function ImageSettings({ s, up }: { s: Settings; up: (f: (x: Settings) => Settin
   const langs = ocrLangs(s);
   const setOpt = (k: string, v: boolean | string | string[]) => up((x) => ({ ...x, options: { ...x.options, [k]: v } }));
   const o = imageOptions(s);
+  const po = pdfOptions(s);
   return (
     <section className="panel">
-      <h2>Images</h2>
+      <h2>Images and PDF</h2>
       <div className="row wrap">
         <span>Text languages (each one adds reading time):</span>
         {OCR_LANGS.map((l) => (
@@ -69,7 +70,28 @@ function ImageSettings({ s, up }: { s: Settings; up: (f: (x: Settings) => Settin
         <label><input type="checkbox" checked={o.verify} onChange={(e) => setOpt('imgVerify', e.target.checked)} /> read the redacted copy again and cover what is still readable</label>
         <label><input type="checkbox" checked={o.review} onChange={(e) => setOpt('imgReview', e.target.checked)} /> require a tick before an image can be copied</label>
       </div>
-      <p className="small muted">Faces, signatures, handwriting and logos are not found automatically: drag over them in the review. The redacted copy is a new file without metadata (location, camera, author).</p>
+      <div className="row wrap">
+        <label>
+          PDF copy resolution{' '}
+          <select value={String(po.dpi)} onChange={(e) => setOpt('pdfDpi', e.target.value)}>
+            {PDF_DPIS.map((d) => <option key={d} value={String(d)}>{d} DPI{d === 150 ? ' (default)' : d === 100 ? ' (smaller file)' : ' (sharper)'}</option>)}
+          </select>
+        </label>
+        <label>
+          OCR of PDF pages{' '}
+          <select value={po.ocr} onChange={(e) => setOpt('pdfOcr', e.target.value)}>
+            <option value="auto">pages with images or without text</option>
+            <option value="always">every page (slower)</option>
+          </select>
+        </label>
+        <label>
+          read at most{' '}
+          <select value={String(po.maxPages)} onChange={(e) => setOpt('pdfMaxPages', e.target.value)}>
+            {[...new Set([20, 50, 100, 200, 500, po.maxPages])].sort((a, b) => a - b).map((n) => <option key={n} value={String(n)}>{n} pages</option>)}
+          </select>
+        </label>
+      </div>
+      <p className="small muted">Faces, signatures, handwriting and logos are not found automatically: drag over them in the review. The redacted copy is a new file without metadata (location, camera, author). A redacted PDF is made of page images: no text layer, form fields, comments, links, attachments or scripts survive.</p>
     </section>
   );
 }

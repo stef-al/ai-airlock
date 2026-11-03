@@ -2,6 +2,7 @@
 // Inputs are generated here (screenshots, a QR code, metadata), so nothing realistic is committed.
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createHash } from 'node:crypto';
 import { crc32 } from 'node:zlib';
 import { chromium } from 'playwright-core';
 import QRCode from 'qrcode';
@@ -47,7 +48,74 @@ const app1Len = Buffer.from([(app1.length + 2) >> 8, (app1.length + 2) & 255]);
 jpeg = Buffer.concat([jpeg.subarray(0, 2), Buffer.from([0xff, 0xe1]), app1Len, app1, jpeg.subarray(2)]);
 await gen.setContent(`<body style="margin:12px;font:15px Arial">token = ${secret} for the backup job</body>`);
 const embedded = (await gen.screenshot({ clip: { x: 0, y: 0, width: 520, height: 44 } })).toString('base64');
+// PDFs: a text PDF (title, link, a screenshot holding a password, two pages) and a scanned one
+const apiToken = ['q7Zx', '9Lm2', 'Vb8T', 'r4Wk'].join('');
+const adminPw = ['Hx4', '!rT', '8vQ', '2'].join('');
+const dbPw = ['Wq3', 'Lz8', 'Np5', 'Rt'].join('');
+await gen.setContent(`<body style="margin:12px;font:16px Arial">password: ${adminPw} (backup admin)</body>`);
+const inPdf = (await gen.screenshot({ clip: { x: 0, y: 0, width: 560, height: 46 } })).toString('base64');
+await gen.setViewportSize({ width: 800, height: 260 });
+await gen.setContent(`<body style="margin:24px;font:18px Arial;background:#fff"><p>Employee record</p><pre style="font:17px monospace">DB_PASSWORD=${dbPw}\nmail: jane.doe@acme.io</pre></body>`);
+const scanShot = (await gen.screenshot()).toString('base64');
+await gen.setContent(`<html><head><title>Quarterly Ops Review</title></head><body style="font:14px Arial">
+  <h1>Ops review</h1><p>Contact ops@acme.io about the rollout.</p><p>api_token = ${apiToken}</p>
+  <p><a href="https://wiki.corp.local/ops">runbook</a></p><img src="data:image/png;base64,${inPdf}">
+  <div style="break-before:page"><h2>Page two</h2><p>Again: api_token ${apiToken}, call +1 415 555 0134.</p></div></body></html>`);
+const textPdf = await gen.pdf({ format: 'A4' });
+await gen.setContent(`<body style="margin:0"><img src="data:image/png;base64,${scanShot}" style="width:100%"></body>`);
+const scanPdf = await gen.pdf({ format: 'A4' });
 await gen.close();
+
+/** A one-page PDF encrypted with the standard security handler (RC4, 40 bits, revision 2). */
+function lockedPdf(line, password) {
+  const PAD = Buffer.from('28bf4e5e4e758a4164004e56fffa01082e2e00b6d0683e802f0ca9fe6453697a', 'hex');
+  const pad = (pw) => Buffer.concat([Buffer.from(pw, 'latin1'), PAD]).subarray(0, 32);
+  const md5 = (...b) => createHash('md5').update(Buffer.concat(b)).digest();
+  const rc4 = (key, data) => {
+    const S = [...Array(256).keys()];
+    for (let i = 0, j = 0; i < 256; i++) {
+      j = (j + S[i] + key[i % key.length]) & 255;
+      [S[i], S[j]] = [S[j], S[i]];
+    }
+    const out = Buffer.alloc(data.length);
+    for (let k = 0, i = 0, j = 0; k < data.length; k++) {
+      i = (i + 1) & 255;
+      j = (j + S[i]) & 255;
+      [S[i], S[j]] = [S[j], S[i]];
+      out[k] = data[k] ^ S[(S[i] + S[j]) & 255];
+    }
+    return out;
+  };
+  const id = Buffer.from('00112233445566778899aabbccddeeff', 'hex');
+  const O = rc4(md5(pad('owner-' + password)).subarray(0, 5), pad(password));
+  const P = Buffer.alloc(4);
+  P.writeInt32LE(-4);
+  const key = md5(pad(password), O, P, id).subarray(0, 5);
+  const U = rc4(key, PAD);
+  const content = rc4(md5(key, Buffer.from([4, 0, 0, 0, 0])).subarray(0, 10), Buffer.from(`BT /F1 16 Tf 72 720 Td (${line}) Tj ET`, 'latin1'));
+  const objs = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>',
+    Buffer.concat([Buffer.from(`<< /Length ${content.length} >>\nstream\n`, 'latin1'), content, Buffer.from('\nendstream', 'latin1')]),
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Filter /Standard /V 1 /R 2 /O <${O.toString('hex')}> /U <${U.toString('hex')}> /P -4 >>`,
+  ];
+  const parts = [Buffer.from('%PDF-1.4\n', 'latin1')];
+  const offsets = [];
+  let size = parts[0].length;
+  objs.forEach((o, i) => {
+    const b = Buffer.concat([Buffer.from(`${i + 1} 0 obj\n`, 'latin1'), Buffer.isBuffer(o) ? o : Buffer.from(o, 'latin1'), Buffer.from('\nendobj\n', 'latin1')]);
+    offsets.push(size);
+    parts.push(b);
+    size += b.length;
+  });
+  const xref = `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  const trailer = `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R /Encrypt 6 0 R /ID [<${id.toString('hex')}> <${id.toString('hex')}>] >>\nstartxref\n${size}\n%%EOF\n`;
+  return Buffer.concat([...parts, Buffer.from(xref + trailer, 'latin1')]);
+}
+const lockedPw = ['Vq8', 'Ns3', 'Kd5'].join('');
+const locked = lockedPdf(`password: ${lockedPw}`, 'open-sesame');
 
 // ---------------------------------------------------------------------------------------------
 // the app
@@ -110,20 +178,65 @@ await page.waitForSelector('.out mark.ph', { timeout: 30000 });
 if (!(await page.locator('.out').innerText()).includes('base64,IMAGE_1')) await fail('embedded image not masked in the text');
 if (!/TOKEN|PASSWORD/.test(await done('pasted text › image 1'))) await fail('embedded image: no secret found');
 
+// PDFs: findings in the text layer and inside an embedded screenshot; an image-only copy
+await page.locator('input[type=file][multiple]').setInputFiles([
+  { name: 'review.pdf', mimeType: 'application/pdf', buffer: textPdf },
+  { name: 'scan.pdf', mimeType: 'application/pdf', buffer: scanPdf },
+]);
+const pdfDone = async (name) => {
+  await page.getByRole('button', { name, exact: true }).click();
+  await page.waitForFunction(() => {
+    const box = document.querySelector('.reviewed input');
+    return !!document.querySelector('canvas[aria-label^="redacted copy of page"]:not(.stale)') && box && !box.disabled;
+  }, null, { timeout: 240000 });
+  return page.locator('.findings tbody').innerText();
+};
+const pdfDownload = async (label) => {
+  await page.locator('.reviewed input').check();
+  const [d] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Download PDF', exact: true }).click()]);
+  return { name: d.suggestedFilename(), bytes: readFileSync(await d.path()), label };
+};
+const f3 = await pdfDone('review.pdf');
+if (!f3.includes(apiToken) || !f3.includes(adminPw) || !f3.includes('EMAIL') || !f3.includes('PHONE')) await fail('review.pdf findings:\n' + f3);
+const r3 = await report();
+if (!/Title “Quarterly Ops Review”/.test(r3) || !/link/.test(r3) || !/OCR on page 1/.test(r3) || !/no masked value is readable/.test(r3)) await fail('review.pdf report:\n' + r3);
+await page.getByText('Masked text', { exact: true }).click();
+const pdfMasked = await page.locator('.maskedtext pre').innerText();
+const tokenPh = /api_token = (\[[A-Z_]+_\d+\])/.exec(pdfMasked)?.[1];
+if (!tokenPh || pdfMasked.includes(apiToken) || pdfMasked.includes(adminPw) || !pdfMasked.includes('=== Page 2 ===')) await fail('review.pdf masked text:\n' + pdfMasked);
+const out3 = await pdfDownload('text PDF');
+const f4 = await pdfDone('scan.pdf');
+if (!f4.includes(dbPw) || !f4.includes('EMAIL')) await fail('scan.pdf findings:\n' + f4);
+const out4 = await pdfDownload('scanned PDF');
+if (out3.name !== 'review-redacted.pdf' || out4.name !== 'scan-redacted.pdf') await fail(`PDF download names ${out3.name}, ${out4.name}`);
+// a PDF with a password: asked for, a wrong one refused, then read
+await page.locator('input[type=file][multiple]').setInputFiles([{ name: 'locked.pdf', mimeType: 'application/pdf', buffer: locked }]);
+await page.getByLabel('PDF password').fill('wrong');
+await page.getByRole('button', { name: 'Open', exact: true }).click();
+await page.getByText('That password is not correct.').waitFor({ timeout: 20000 });
+await page.getByLabel('PDF password').fill('open-sesame');
+await page.getByRole('button', { name: 'Open', exact: true }).click();
+if (!(await pdfDone('locked.pdf')).includes(lockedPw)) await fail('locked.pdf: the password in it was not found');
+
 // the copies: OCR (in the self-test page) must not read the masked values any more
 const check = await browser.newPage();
 await check.goto(FILE + '#selftest');
 await check.waitForFunction(() => !!globalThis.__airlockSelfTest, null, { timeout: 30000 });
+const masked = /4539 ?5787|ops@acme|jane\.doe/;
 for (const o of [out1, out2]) {
   const text = await check.evaluate((b) => globalThis.__airlockSelfTest.readText(b), o.bytes.toString('base64'));
-  if (text.includes(secret) || /4539 ?5787|ops@acme|jane\.doe/.test(text)) await fail(`${o.label} copy still shows a masked value:\n${text}`);
+  if (text.includes(secret) || masked.test(text)) await fail(`${o.label} copy still shows a masked value:\n${text}`);
 }
-// pdf.js and the face model still load from memory (used by later phases)
-const pdfGen = await browser.newPage();
-await pdfGen.setContent(`<body style="font:14px Arial"><h1>Invoice</h1><p>api_token = ${secret}</p></body>`);
-const pdf = (await pdfGen.pdf({ format: 'A4' })).toString('base64');
-const p = await check.evaluate((b) => globalThis.__airlockSelfTest.pdf(b), pdf);
-if (!p.text.includes(secret)) await fail('PDF text layer: ' + JSON.stringify(p.text));
+for (const [o, pages] of [[out3, 2], [out4, 1]]) {
+  const info = await check.evaluate((b) => globalThis.__airlockSelfTest.pdfInfo(b, true), o.bytes.toString('base64'));
+  if (info.pages.length !== pages) await fail(`${o.label} copy: ${info.pages.length} pages`);
+  if (info.pages.some((x) => x.text || x.annots) || info.inv.info.length || info.inv.xmp || info.inv.attachments.length) await fail(`${o.label} copy carries text, annotations or metadata: ` + JSON.stringify({ ...info, pages: info.pages.map((x) => ({ ...x, png: undefined })) }));
+  for (const pg of info.pages) {
+    const text = await check.evaluate((b) => globalThis.__airlockSelfTest.readText(b), pg.png);
+    if ([apiToken, adminPw, dbPw].some((v) => text.includes(v)) || masked.test(text)) await fail(`${o.label} copy still shows a masked value:\n${text}`);
+  }
+}
+// the face model still loads from memory (used by a later phase)
 const fm = await check.evaluate((b) => globalThis.__airlockSelfTest.faces(b), embedded);
 if (fm.shapes.length !== 4) await fail('face model outputs: ' + JSON.stringify(fm));
 
@@ -133,6 +246,9 @@ await page.getByLabel('AI reply').fill('Rotate [PASSWORD_1] and the code behind 
 await page.waitForFunction(() => (document.querySelector('.out')?.textContent ?? '').startsWith('Rotate'), null, { timeout: 8000 });
 const restored = await page.locator('.out').innerText();
 if (!restored.includes('otpauth://') || /\[(?:PASSWORD|QR)_1\]/.test(restored)) await fail('restore of box labels: ' + restored);
+await page.getByLabel('AI reply').fill(`Revoke ${tokenPh} now.`);
+await page.waitForFunction((v) => (document.querySelector('.out')?.textContent ?? '').includes(v), apiToken, { timeout: 8000 }).catch(() => {});
+if (!(await page.locator('.out').innerText()).includes(apiToken)) await fail('restore of a PDF placeholder: ' + (await page.locator('.out').innerText()));
 
 const external = [...requests].filter((u) => !u.startsWith('file:') && !u.startsWith('blob:') && !u.startsWith('data:'));
 if (external.length) await fail('network requests: ' + external.join(', '));
@@ -150,5 +266,5 @@ if (inWorker !== 'blocked') await fail('fetch from a worker was not blocked: ' +
 const unexpected = problems.filter((x) => !/https:\/\/example\.com\/.*(?:Refused to connect|Content Security Policy)|Refused to connect to 'https:\/\/example\.com/.test(x));
 if (unexpected.length) await fail('console problems (CSP violations show here):\n' + unexpected.join('\n'));
 
-console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | restore of box labels | PDF + face model load | no requests, no CSP violations');
+console.log('smoke-media OK: PNG (text chunk, QR) and JPEG (EXIF GPS) redacted without metadata, nothing readable | pasted screenshot | embedded image | text PDF (text layer + screenshot), scanned PDF and a PDF with a password: image-only copies without text or metadata, nothing readable | restore of box labels and PDF placeholders | face model loads | no requests, no CSP violations');
 await browser.close();

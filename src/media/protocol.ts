@@ -26,8 +26,11 @@ export interface RenderBox {
 
 export type MediaReq =
   | { type: 'init'; wasm: Uint8Array; langs: { code: string; gz: Uint8Array }[] }
-  /** OCR (and QR codes) of an encoded image file */
-  | { type: 'read'; image: Uint8Array; qr: boolean }
+  /**
+   * OCR (and QR codes) of an encoded image file or of decoded pixels (a rendered PDF page).
+   * `upscale` (default on) enlarges screenshot-sized images for OCR; `ocr: false` only looks for QR codes.
+   */
+  | { type: 'read'; image: Uint8Array | ImageBitmap; qr: boolean; ocr?: boolean; upscale?: boolean }
   /** paint the boxes over the image and encode a new file (no metadata survives) */
   | { type: 'render'; image: Uint8Array; boxes: RenderBox[]; mime: 'image/png' | 'image/jpeg'; labels: boolean };
 

@@ -23,8 +23,8 @@ export interface Region {
 }
 
 /** a token's characters at the end of a line and at the start of the next */
-const TAIL = /[A-Za-z0-9+/=_.:~%@-]{8,}$/;
-const HEAD = /^[A-Za-z0-9+/=_.:~%@-]{3,}/;
+export const TAIL = /[A-Za-z0-9+/=_.:~%@-]{8,}$/;
+export const HEAD = /^[A-Za-z0-9+/=_.:~%@-]{3,}/;
 /**
  * OCR reads straight quotes as typographic ones and a "c" as a cent sign: mapped back one for one
  * (offsets do not move)

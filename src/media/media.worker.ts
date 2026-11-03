@@ -4,6 +4,7 @@
 import jsQR from 'jsqr';
 import TesseractCore, { type TessBaseAPI, type TessModule } from 'tesseract.js-core/tesseract-core-simd-lstm.js';
 import type { Box, OcrResult, OcrWord } from './ocrTypes';
+import { paintBoxes } from './paint';
 import type { MediaReq, QrCode, ReadResult, RenderBox, RenderResult } from './protocol';
 
 let tess: TessModule | null = null;
@@ -94,9 +95,9 @@ function findQr(img: ImageData): QrCode[] {
   return out;
 }
 
-async function read(image: Uint8Array, wantQr: boolean): Promise<ReadResult> {
+async function read(image: Uint8Array | ImageBitmap, wantQr: boolean, wantOcr = true, upscale = true): Promise<ReadResult> {
   const t0 = performance.now();
-  const bmp = await decode(image);
+  const bmp = image instanceof ImageBitmap ? image : await decode(image);
   const w = bmp.width;
   const h = bmp.height;
   // transparent pixels become white, as they look in a viewer
@@ -107,8 +108,9 @@ async function read(image: Uint8Array, wantQr: boolean): Promise<ReadResult> {
   bx.drawImage(bmp, 0, 0);
   bmp.close();
   const qr = wantQr ? findQr(bx.getImageData(0, 0, w, h)) : [];
+  if (!wantOcr) return { width: w, height: h, scale: 1, inverted: false, ocr: { text: '', conf: 0, words: [] }, qr, ms: Math.round(performance.now() - t0) };
   // Tesseract reads text best at 20-30 px: screenshot-sized images are enlarged
-  const scale = Math.max(w, h) <= 2200 ? 2 : 1;
+  const scale = upscale && Math.max(w, h) <= 2200 ? 2 : 1;
   const W = Math.round(w * scale);
   const H = Math.round(h * scale);
   const c = new OffscreenCanvas(W, H);
@@ -136,37 +138,13 @@ async function read(image: Uint8Array, wantQr: boolean): Promise<ReadResult> {
   return { width: w, height: h, scale, inverted, ocr, qr, ms: Math.round(performance.now() - t0) };
 }
 
-/** Largest monospace size (7 px or more) at which the label fits the box, or 0. */
-function fit(x: OffscreenCanvasRenderingContext2D, label: string, w: number, h: number): number {
-  let size = Math.floor(Math.min(h * 0.72, 40));
-  for (; size >= 7; size--) {
-    x.font = `bold ${size}px monospace`;
-    if (x.measureText(label).width <= w - 4) return size;
-  }
-  return 0;
-}
-
 async function render(image: Uint8Array, boxes: RenderBox[], mime: string, labels: boolean): Promise<RenderResult> {
   const bmp = await decode(image);
   const c = new OffscreenCanvas(bmp.width, bmp.height);
   const x = c.getContext('2d')!;
   x.drawImage(bmp, 0, 0);
   bmp.close();
-  // opaque fill over decoded pixels: nothing of the original survives inside a box
-  x.globalAlpha = 1;
-  x.fillStyle = '#000';
-  for (const { box } of boxes) x.fillRect(box[0], box[1], box[2] - box[0], box[3] - box[1]);
-  if (labels) {
-    x.fillStyle = '#fff';
-    x.textBaseline = 'middle';
-    for (const { box, label } of boxes) {
-      if (!label) continue;
-      const size = fit(x, label, box[2] - box[0], box[3] - box[1]);
-      if (!size) continue;
-      x.font = `bold ${size}px monospace`;
-      x.fillText(label, box[0] + 2, (box[1] + box[3]) / 2);
-    }
-  }
+  paintBoxes(x, boxes, labels);
   const blob = await c.convertToBlob({ type: mime, quality: 0.92 });
   return { bytes: new Uint8Array(await blob.arrayBuffer()), mime: blob.type, width: c.width, height: c.height };
 }
@@ -192,7 +170,7 @@ self.onmessage = async (e: MessageEvent<{ id: number; req: MediaReq }>) => {
         break;
       }
       case 'read':
-        reply({ ok: true, result: await read(req.image, req.qr) });
+        reply({ ok: true, result: await read(req.image, req.qr, req.ocr ?? true, req.upscale ?? true) });
         break;
       case 'render': {
         const r = await render(req.image, req.boxes, req.mime, req.labels);

@@ -28,3 +28,20 @@ export const imageOptions = (s: Settings) => ({
 
 /** OCR languages and QR scanning: the image is read again when these change. */
 export const readKey = (s: Settings) => ocrLangs(s).join('+') + (imageOptions(s).qr ? '+qr' : '');
+
+export const PDF_DPIS = [100, 150, 200] as const;
+
+export const pdfOptions = (s: Settings) => {
+  const dpi = Number(opt(s, 'pdfDpi', '150'));
+  const max = Math.round(Number(opt(s, 'pdfMaxPages', '100')));
+  return {
+    /** resolution of the redacted copy's pages */
+    dpi: (PDF_DPIS as readonly number[]).includes(dpi) ? dpi : 150,
+    /** auto: OCR pages that show images or have (almost) no text layer */
+    ocr: opt<string>(s, 'pdfOcr', 'auto') === 'always' ? ('always' as const) : ('auto' as const),
+    maxPages: Number.isFinite(max) && max >= 1 ? Math.min(max, 500) : 100,
+  };
+};
+
+/** A PDF is read again when these change. */
+export const pdfReadKey = (s: Settings) => `${readKey(s)}|${pdfOptions(s).ocr}|${pdfOptions(s).maxPages}`;

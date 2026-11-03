@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { opt, type Hit, type Settings } from '../engine/light';
 import { spanBoxes } from '../media/ocrdoc';
 import type { Box } from '../media/ocrTypes';
+import { BOX_TYPES, CopyView, PageView, useBitmap, type Mark } from './PageView';
 import { hitKey, type DocState } from './types';
 import { copyText } from './util';
 
@@ -25,49 +26,10 @@ interface Props {
   onUnkeep(d: DocState, h: Hit): void;
 }
 
-const COLORS: Record<string, string> = { secret: '#dc2626', personal: '#2563eb', financial: '#9333ea', network: '#059669', custom: '#d97706' };
-const BOX_TYPES: [string, string][] = [
-  ['AREA', 'area'],
-  ['FACE', 'face'],
-  ['SIGNATURE', 'signature'],
-];
-
-/** Decoded image for a canvas; the previous bitmap is released when the bytes change. */
-function useBitmap(bytes?: Uint8Array): ImageBitmap | null {
-  const [bmp, setBmp] = useState<ImageBitmap | null>(null);
-  useEffect(() => {
-    if (!bytes) {
-      setBmp(null);
-      return;
-    }
-    let alive = true;
-    let made: ImageBitmap | null = null;
-    const blob = new Blob([bytes as BlobPart]);
-    createImageBitmap(blob, { imageOrientation: 'from-image' })
-      .catch(() => createImageBitmap(blob))
-      .then((b) => {
-        if (alive) setBmp((made = b));
-        else b.close();
-      })
-      .catch(() => setBmp(null));
-    return () => {
-      alive = false;
-      made?.close();
-    };
-  }, [bytes]);
-  return bmp;
-}
-
-const area = (b: Box) => (b[2] - b[0]) * (b[3] - b[1]);
-const inside = (b: Box, x: number, y: number) => x >= b[0] && x <= b[2] && y >= b[1] && y <= b[3];
-
 export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkeep }: Props) {
   const img = d.image!;
   const orig = useBitmap(img.bytes);
   const outBmp = useBitmap(img.out?.bytes);
-  const canvas = useRef<HTMLCanvasElement>(null);
-  const outCanvas = useRef<HTMLCanvasElement>(null);
-  const [drag, setDrag] = useState<Box | null>(null);
   const [boxType, setBoxType] = useState('AREA');
   const [fixText, setFixText] = useState('');
   const [msg, setMsg] = useState('');
@@ -77,91 +39,13 @@ export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkee
   const H = img.height || orig?.height || 0;
   const all = useMemo(() => [...d.hits, ...d.extra].sort((a, b) => a.start - b.start), [d.hits, d.extra]);
   const kept = useMemo(() => new Set(d.keep), [d.keep]);
-  const boxes = useMemo(() => all.map((h) => ({ h, key: hitKey(d.text, h), boxes: img.text ? spanBoxes(img.text, h.start, h.end, pad, W, H) : [] })), [all, d.text, img.text, pad, W, H]);
+  const marks = useMemo<Mark[]>(
+    () => all.map((h) => ({ key: hitKey(d.text, h), category: h.category, kept: kept.has(hitKey(d.text, h)), low: h.confidence < 0.7, boxes: img.text ? spanBoxes(img.text, h.start, h.end, pad, W, H) : [] })),
+    [all, d.text, img.text, pad, W, H, kept],
+  );
+  const manual = useMemo(() => img.manual.map((m) => m.box), [img.manual]);
   const selHit = sel ? all.find((h) => hitKey(d.text, h) === sel) : undefined;
   useEffect(() => setFixText(selHit ? d.text.slice(selHit.start, selHit.end) : ''), [selHit, d.text]);
-
-  useEffect(() => {
-    const c = canvas.current;
-    if (!c || !orig) return;
-    c.width = orig.width;
-    c.height = orig.height;
-    const x = c.getContext('2d')!;
-    try {
-      x.drawImage(orig, 0, 0);
-    } catch {
-      return; // released while a new image is being decoded
-    }
-    const lw = Math.max(2, Math.round(Math.max(orig.width, orig.height) / 700));
-    for (const { h, key, boxes: bs } of boxes) {
-      const color = COLORS[h.category] ?? COLORS.custom;
-      const isKept = kept.has(key);
-      for (const b of bs) {
-        if (!isKept) {
-          x.fillStyle = color + '40';
-          x.fillRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
-        }
-        x.setLineDash(isKept ? [lw * 3, lw * 2] : h.confidence < 0.7 ? [lw, lw] : []);
-        x.lineWidth = key === sel ? lw * 3 : lw;
-        x.strokeStyle = color;
-        x.strokeRect(b[0], b[1], b[2] - b[0], b[3] - b[1]);
-      }
-    }
-    x.setLineDash([]);
-    for (const m of img.manual) {
-      x.fillStyle = 'rgba(0,0,0,0.6)';
-      x.fillRect(m.box[0], m.box[1], m.box[2] - m.box[0], m.box[3] - m.box[1]);
-    }
-    if (drag) {
-      x.setLineDash([lw * 2, lw * 2]);
-      x.lineWidth = lw;
-      x.strokeStyle = '#111';
-      x.strokeRect(drag[0], drag[1], drag[2] - drag[0], drag[3] - drag[1]);
-      x.setLineDash([]);
-    }
-  }, [orig, boxes, kept, sel, img.manual, drag]);
-
-  useEffect(() => {
-    const c = outCanvas.current;
-    if (!c || !outBmp) return;
-    c.width = outBmp.width;
-    c.height = outBmp.height;
-    try {
-      c.getContext('2d')!.drawImage(outBmp, 0, 0);
-    } catch {
-      /* released while the next copy is being decoded */
-    }
-  }, [outBmp]);
-
-  const toImage = (e: PointerEvent<HTMLCanvasElement>): [number, number] => {
-    const c = e.currentTarget;
-    const r = c.getBoundingClientRect();
-    return [((e.clientX - r.left) * c.width) / r.width, ((e.clientY - r.top) * c.height) / r.height];
-  };
-  const down = (e: PointerEvent<HTMLCanvasElement>) => {
-    const [x, y] = toImage(e);
-    e.currentTarget.setPointerCapture(e.pointerId);
-    setDrag([x, y, x, y]);
-  };
-  const move = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (!drag) return;
-    const [x, y] = toImage(e);
-    setDrag([drag[0], drag[1], x, y]);
-  };
-  const up = (e: PointerEvent<HTMLCanvasElement>) => {
-    if (!drag) return;
-    const [x, y] = toImage(e);
-    setDrag(null);
-    const b: Box = [Math.min(drag[0], x), Math.min(drag[1], y), Math.max(drag[0], x), Math.max(drag[1], y)];
-    const min = Math.max(6, W / 150);
-    if (b[2] - b[0] > min && b[3] - b[1] > min) {
-      ops.addBox(d, [Math.floor(b[0]), Math.floor(b[1]), Math.ceil(b[2]), Math.ceil(b[3])], boxType);
-      return;
-    }
-    // a click: the smallest finding under the pointer
-    const under = boxes.filter((x2) => x2.boxes.some((bb) => inside(bb, x, y))).sort((a, b2) => area(a.boxes[0]) - area(b2.boxes[0]));
-    setSel(under[0] ? (under[0].key === sel ? null : under[0].key) : null);
-  };
 
   const flash = (m: string) => {
     setMsg(m);
@@ -188,7 +72,7 @@ export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkee
             </label>
           </div>
           <div className="imgview">
-            {orig ? <canvas ref={canvas} className="imgcanvas" aria-label="image with findings; drag to cover an area, click a box for details" onPointerDown={down} onPointerMove={move} onPointerUp={up} /> : <div className="muted small">Decoding…</div>}
+            <PageView bmp={orig} w={W} h={H} marks={marks} manual={manual} sel={sel} onSelect={setSel} onBox={(b) => ops.addBox(d, b, boxType)} label="image with findings; drag to cover an area, click a box for details" />
           </div>
           {selHit && (
             <div className="detail">
@@ -230,7 +114,7 @@ export function ImageReview({ d, settings, sel, setSel, ops, onKeepOnce, onUnkee
             <button disabled={!ready || !d.result} onClick={async () => flash((await copyText(d.result!.output)) ? 'Copied text' : 'copy failed')}>Copy text</button>
           </div>
           <div className="imgview">
-            {out ? <canvas ref={outCanvas} className={ready ? 'imgcanvas' : 'imgcanvas stale'} aria-label="redacted copy" /> : <div className="muted small">{d.status === 'error' ? 'No copy: see the error above.' : img.rendering ? 'Painting the redactions…' : !read ? 'Reading the text in the image…' : 'Masking…'}</div>}
+            {out ? <CopyView bmp={outBmp} stale={!ready} label="redacted copy" /> : <div className="muted small">{d.status === 'error' ? 'No copy: see the error above.' : img.rendering ? 'Painting the redactions…' : !read ? 'Reading the text in the image…' : 'Masking…'}</div>}
           </div>
           {needReview && (
             <label className="reviewed">

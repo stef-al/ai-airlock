@@ -4,6 +4,7 @@ import type { Box } from '../media/ocrTypes';
 import type { AnalyzeRes, MaskRes } from '../worker/protocol';
 import { CancelledError, engine } from './engineClient';
 import type { ImageOps } from './ImageReview';
+import type { PdfOps } from './PdfReview';
 import { MaskView } from './MaskView';
 import { loadMedia, MEDIA } from './media';
 import { RestoreView } from './RestoreView';
@@ -70,13 +71,13 @@ export function App() {
         const image = d.kind === 'image';
         const res = await engine.call<AnalyzeRes>({
           type: 'analyze', docKey: id, text: d.text, settings: settingsRef.current,
-          ...(image ? { ocr: true } : { fileName: d.name === 'pasted text' ? undefined : d.name }),
+          ...(image || d.pdf?.usedOcr ? { ocr: true } : d.kind === 'pdf' ? {} : { fileName: d.name === 'pasted text' ? undefined : d.name }),
         });
         const cur = docsRef.current.find((x) => x.id === id);
         if (!cur || cur.ver !== ver) return;
         const valid = new Set(res.hits.map((h) => hitKey(cur.text, h)));
         patch(id, { hits: res.hits, format: res.format, lang: res.lang, ms: res.ms, status: 'ready', keep: cur.keep.filter((k) => valid.has(k)), mver: cur.mver + 1 });
-        if (MEDIA && !image) syncEmbedded(id, res.hits);
+        if (MEDIA && cur.kind === 'text') syncEmbedded(id, res.hits);
       } catch (e) {
         if (e instanceof CancelledError) patch(id, { status: 'idle', error: e.message });
         else patch(id, { status: 'error', error: (e as Error).message });
@@ -85,10 +86,49 @@ export function App() {
     [patch],
   );
 
+  const patchPdf = useCallback(
+    (id: string, p: Partial<NonNullable<DocState['pdf']>>) => updateDocs((ds) => ds.map((x) => (x.id === id && x.pdf ? { ...x, pdf: { ...x.pdf, ...p } } : x))),
+    [updateDocs],
+  );
+
+  /** A PDF's pages: text layer, OCR where needed, annotations; the text then goes through the usual analysis. */
+  const runReadPdf = useCallback(
+    async (id: string) => {
+      const d = docsRef.current.find((x) => x.id === id);
+      if (!d?.pdf) return;
+      patch(id, { status: 'analyzing', error: undefined, result: undefined, pdf: { ...d.pdf, out: undefined, locked: undefined, progress: 'Opening the PDF…' } });
+      const m = await loadMedia();
+      try {
+        const r = await m.readPdf(d.pdf, settingsRef.current, (msg) => patchPdf(id, { progress: msg }));
+        updateDocs((ds) =>
+          ds.map((x) =>
+            x.id === id && x.pdf
+              ? { ...x, pdf: { ...x.pdf, inv: r.inv, pages: r.pages, offsets: r.offsets, usedOcr: r.usedOcr, readKey: r.readKey, readMs: r.readMs, out: undefined, progress: undefined, reviewed: false }, text: r.text, ver: x.ver + 1, keep: [], extra: r.extra }
+              : x,
+          ),
+        );
+        scheduleAnalyzeRef.current(id, 0);
+      } catch (e) {
+        if (e instanceof m.PdfPasswordError) {
+          patchPdf(id, { locked: e.wrong ? 'wrong' : 'need', progress: undefined });
+          patch(id, { status: 'idle' });
+        } else if (e instanceof CancelledError) {
+          patchPdf(id, { progress: undefined });
+          patch(id, { status: 'idle', error: e.message });
+        } else {
+          patchPdf(id, { progress: undefined });
+          patch(id, { status: 'error', error: 'Reading the PDF failed: ' + (e as Error).message });
+        }
+      }
+    },
+    [patch, patchPdf, updateDocs],
+  );
+
   /** OCR of an image document; its text then goes through the usual analysis. */
   const runRead = useCallback(
     async (id: string) => {
       const d = docsRef.current.find((x) => x.id === id);
+      if (d?.pdf) return runReadPdf(id);
       if (!d?.image) return;
       patch(id, { status: 'analyzing', error: undefined, result: undefined, image: { ...d.image, out: undefined } });
       try {
@@ -102,7 +142,7 @@ export function App() {
         else patch(id, { status: 'error', error: 'Reading the image failed: ' + (e as Error).message });
       }
     },
-    [patch, updateDocs],
+    [patch, updateDocs, runReadPdf],
   );
   const scheduleAnalyzeRef = useRef<(id: string, delay?: number) => void>(() => {});
 
@@ -162,7 +202,7 @@ export function App() {
           () => ({
             type: 'mask', docKey: d.id, text: d.text, settings: settingsRef.current, fileName: d.name === 'pasted text' ? undefined : d.name,
             // an image is masked as plain text: boxes are painted, so there is no structure to guard
-            format: d.kind === 'image' ? 'prose' : (d.format ?? 'prose'), lang: d.lang, hits, mapping: mappingRef.current ?? EMPTY_MAPPING,
+            format: d.kind !== 'text' ? 'prose' : (d.format ?? 'prose'), lang: d.lang, hits, mapping: mappingRef.current ?? EMPTY_MAPPING,
           }),
           // the session mapping must be updated before the next queued mask job reads it
           { onResult: (res) => void (mappingRef.current = res.mapping) },
@@ -207,6 +247,31 @@ export function App() {
     }
   }, [docs, settings, updateDocs]);
 
+  // PDFs: render every page with the masked findings painted over, check it, write the copy
+  useEffect(() => {
+    if (!MEDIA) return;
+    for (const d of docs) {
+      const pdf = d.pdf;
+      if (d.kind !== 'pdf' || !pdf || !d.result || d.status !== 'ready' || d.maskedVer !== d.mver || rendering.current.has(d.id)) continue;
+      const opts = JSON.stringify([settings.options.imgLabels, settings.options.imgPad, settings.options.imgAllText, settings.options.imgVerify, settings.options.pdfDpi]);
+      const key = `${d.maskedVer}:${pdf.rver}:${opts}`;
+      if (pdf.out?.key === key) continue;
+      rendering.current.add(d.id);
+      const res = d.result;
+      patchPdf(d.id, { rendering: true });
+      loadMedia()
+        .then((m) => m.redactPdf(pdf, res, settingsRef.current, key, (msg) => patchPdf(d.id, { progress: msg })))
+        .then((out) => updateDocs((ds) => ds.map((x) => (x.id === d.id && x.pdf && x.maskedVer === d.maskedVer && x.pdf.rver === pdf.rver ? { ...x, pdf: { ...x.pdf, out, reviewed: false } } : x))))
+        .catch((e: Error) => {
+          if (!(e instanceof CancelledError)) updateDocs((ds) => ds.map((x) => (x.id === d.id ? { ...x, status: 'error', error: 'Redacting the PDF failed: ' + e.message } : x)));
+        })
+        .finally(() => {
+          rendering.current.delete(d.id);
+          patchPdf(d.id, { rendering: false, progress: undefined });
+        });
+    }
+  }, [docs, settings, updateDocs, patchPdf]);
+
   // settings: persist, then re-analyse everything
   const firstSettings = useRef(true);
   useEffect(() => {
@@ -217,10 +282,13 @@ export function App() {
     }
     const t = setTimeout(async () => {
       // images are read again when the OCR languages or QR codes changed
-      const readKey = MEDIA ? (await loadMedia()).readKey(settings) : '';
+      const m = MEDIA ? await loadMedia() : null;
+      const readKey = m ? m.readKey(settings) : '';
+      const pdfKey = m ? m.pdfReadKey(settings) : '';
       for (const d of docsRef.current) {
-        if (d.image && d.image.readKey !== readKey) void runRead(d.id);
-        else if (d.text.trim() || d.image) scheduleAnalyze(d.id, 0);
+        if (d.pdf?.locked) continue;
+        if ((d.image && d.image.readKey !== readKey) || (d.pdf && d.pdf.readKey !== pdfKey)) void runRead(d.id);
+        else if (d.text.trim() || d.image || d.pdf) scheduleAnalyze(d.id, 0);
       }
     }, 400);
     return () => clearTimeout(t);
@@ -260,6 +328,9 @@ export function App() {
       if (r.kind === 'image') {
         d.kind = 'image';
         d.image = (await loadMedia()).newImageState(r.bytes);
+      } else if (r.kind === 'pdf') {
+        d.kind = 'pdf';
+        d.pdf = (await loadMedia()).newPdfState(r.bytes);
       }
       added.push(d);
     }
@@ -270,7 +341,7 @@ export function App() {
       return [...base, ...added];
     });
     setActiveId(added[0].id);
-    added.forEach((d) => (d.image ? void runRead(d.id) : scheduleAnalyze(d.id, 0)));
+    added.forEach((d) => (d.image || d.pdf ? void runRead(d.id) : scheduleAnalyze(d.id, 0)));
   };
   const addFilesRef = useRef(addFiles);
   addFilesRef.current = addFiles;
@@ -339,11 +410,35 @@ export function App() {
     },
   };
 
-  const stopMedia = (why: string) => MEDIA && void loadMedia().then((m) => m.media.cancel(why));
+  const pdfOps: PdfOps = {
+    addBox: (d, page, box: Box, type: string) => d.pdf && patch(d.id, { pdf: { ...d.pdf, manual: [...d.pdf.manual, { page, box, type }], rver: d.pdf.rver + 1, reviewed: false } }),
+    removeBox: (d, i) => d.pdf && patch(d.id, { pdf: { ...d.pdf, manual: d.pdf.manual.filter((_, j) => j !== i), rver: d.pdf.rver + 1, reviewed: false } }),
+    setReviewed: (d, v) => d.pdf && patch(d.id, { pdf: { ...d.pdf, reviewed: v } }),
+    download: (d) => {
+      const out = d.pdf?.out;
+      if (!out) return;
+      const base = d.name.replace(/\.[^./]+$/, '').replace(/[^\w.-]+/g, '-') || 'document';
+      downloadBytes(`${base}-redacted.pdf`, out.bytes, 'application/pdf');
+    },
+    unlock: (d, password) => {
+      if (!d.pdf) return;
+      patch(d.id, { pdf: { ...d.pdf, password, locked: undefined } });
+      void runRead(d.id);
+    },
+  };
+
+  const stopMedia = (why: string) =>
+    MEDIA &&
+    void loadMedia().then((m) => {
+      m.cancelPdf();
+      m.media.cancel(why);
+    });
+  const closePdfs = (ds: DocState[]) => MEDIA && ds.some((d) => d.pdf) && void loadMedia().then((m) => ds.forEach((d) => d.pdf && void m.closePdf(d.pdf.bytes)));
 
   const forget = () => {
     engine.cancel('forgotten');
     stopMedia('forgotten');
+    closePdfs(docsRef.current);
     mappingRef.current = undefined;
     setMapCount(0);
     const d = newDoc();
@@ -390,6 +485,7 @@ export function App() {
           active={active}
           busy={busy || mediaBusy}
           imageOps={imageOps}
+          pdfOps={pdfOps}
           outputOf={outputOf}
           settings={settings}
           onSelect={setActiveId}
@@ -402,6 +498,7 @@ export function App() {
             setActiveId(d.id);
           }}
           onRemove={(id) => {
+            closePdfs(docsRef.current.filter((d) => d.id === id));
             updateDocs((ds) => {
               const rest = ds.filter((d) => d.id !== id);
               if (!rest.length) rest.push(newDoc());
@@ -428,11 +525,17 @@ export function App() {
               return { ...s, customLists: lists };
             });
           }}
-          onRetry={(id) => scheduleAnalyze(id, 0)}
+          onRetry={(id) => {
+            const d = docsRef.current.find((x) => x.id === id);
+            // a file whose reading did not finish is read again
+            if ((d?.pdf && !d.pdf.readKey) || (d?.image && !d.image.text)) void runRead(id);
+            else scheduleAnalyze(id, 0);
+          }}
           onCancel={() => {
             engine.cancel('Stopped.');
             stopMedia('Stopped.');
-            updateDocs((ds) => ds.map((d) => (d.status === 'analyzing' ? { ...d, status: 'idle', error: 'Stopped. Edit the text or press Detect to try again.' } : d)));
+            // stopped copies are not started again until the user asks
+            updateDocs((ds) => ds.map((d) => (d.status === 'analyzing' || d.pdf?.rendering || d.image?.rendering ? { ...d, status: 'idle', error: 'Stopped. Edit the text or press Detect to try again.' } : d)));
           }}
         />
       )}
@@ -469,7 +572,7 @@ function About() {
       <h2>Limits</h2>
       <ul>
         <li>Detection is rule-based. It cannot know that an ordinary word is a secret or a name unless a cue, a format or your lists say so. Always read the masked text before pasting.</li>
-        <li>Names and organisations without cues, postal addresses, and Office/PDF files are not covered yet.</li>
+        <li>Names and organisations without cues, postal addresses, and Office files are not covered yet. Images and PDF files need airlock-media.html.</li>
         <li>Chatbots may rewrite or drop placeholders; the restore report lists what did not come back.</li>
       </ul>
     </section>

@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type Rea
 import type { Hit, Settings } from '../engine/light';
 import { ImageReview, type ImageOps } from './ImageReview';
 import { MEDIA } from './media';
+import { PdfReview, type PdfOps } from './PdfReview';
 import { hitKey, selectedHits, type DocState } from './types';
 import { copyText } from './util';
 
@@ -24,6 +25,7 @@ interface Props {
   onRetry(id: string): void;
   onCancel(): void;
   imageOps: ImageOps;
+  pdfOps: PdfOps;
   /** masked text to copy (embedded images swapped for their redacted copy) */
   outputOf(d: DocState): string;
 }
@@ -174,12 +176,26 @@ export function MaskView(p: Props) {
         <div className="grow" />
         {p.busy && <button onClick={p.onCancel}>Cancel</button>}
         <span className="small muted">
-          {d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
+          {d.pdf?.progress ? d.pdf.progress : d.status === 'analyzing' ? (d.kind === 'image' && !d.image?.read ? 'reading the image…' : 'detecting…') : d.kind === 'image' ? (d.image?.width ? `image ${d.image.width}×${d.image.height}` : '') : d.kind === 'pdf' ? (d.pdf?.inv ? `PDF, ${d.pdf.inv.pages} page${d.pdf.inv.pages === 1 ? '' : 's'}` : '') : d.format ? `${d.format}${d.lang ? ' / ' + d.lang : ''}${d.ms != null ? ` · ${d.ms} ms` : ''}` : ''}
         </span>
       </div>
 
       <div className="summary">
-        {counts.length === 0 && <span className="muted small">{d.status === 'ready' ? (d.kind === 'image' ? 'No sensitive text found in the image. Check it yourself and cover anything else by dragging.' : 'Nothing sensitive found.') : d.kind === 'image' ? 'Reading the image…' : 'Paste or drop text, config, code or logs below, or paste a screenshot.'}</span>}
+        {counts.length === 0 && (
+          <span className="muted small">
+            {d.status === 'ready'
+              ? d.kind === 'image'
+                ? 'No sensitive text found in the image. Check it yourself and cover anything else by dragging.'
+                : d.kind === 'pdf'
+                  ? 'No sensitive text found in the PDF. Check the pages yourself and cover anything else by dragging.'
+                  : 'Nothing sensitive found.'
+              : d.kind === 'image'
+                ? 'Reading the image…'
+                : d.kind === 'pdf'
+                  ? d.pdf?.locked ? 'The PDF needs its password.' : 'Reading the PDF…'
+                  : 'Paste or drop text, config, code or logs below, or paste a screenshot or a PDF.'}
+          </span>
+        )}
         {counts.map(([t, n]) => <span key={t} className="chip">{t} <b>{n}</b></span>)}
         {low.length > 0 && <button className={lowOnly ? 'chip warn on' : 'chip warn'} onClick={() => setLowOnly(!lowOnly)}>{low.length} to review (low confidence)</button>}
         {res && d.kind === 'text' && (
@@ -197,6 +213,8 @@ export function MaskView(p: Props) {
 
       {d.kind === 'image' ? (
         <ImageReview d={d} settings={p.settings} sel={sel} setSel={setSel} ops={p.imageOps} onKeepOnce={p.onKeepOnce} onUnkeep={p.onUnkeep} />
+      ) : d.kind === 'pdf' ? (
+        <PdfReview key={d.id} d={d} settings={p.settings} sel={sel} setSel={setSel} ops={p.pdfOps} outputOf={p.outputOf} onKeepOnce={p.onKeepOnce} onUnkeep={p.onUnkeep} />
       ) : (
       <div className="cols">
         <section className={drag ? 'panel drop' : 'panel'} onDragOver={(e) => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={onDrop}>
@@ -248,8 +266,8 @@ export function MaskView(p: Props) {
             <button className="primary" disabled={!fresh} title={res && !fresh ? 'Updating: the output does not match the text yet' : undefined} onClick={() => fresh && copy('Copied masked text', p.outputOf(d))}>Copy masked</button>
             {p.docs.length > 1 && (
               <button
-                disabled={!p.docs.every((x) => x.kind !== 'text' || !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
-                onClick={() => copy('Copied all', p.docs.filter((x) => x.kind === 'text' && x.text.trim()).map((x) => `=== ${x.name} ===\n${p.outputOf(x)}`).join('\n\n'))}
+                disabled={!p.docs.every((x) => x.kind === 'image' || !x.text.trim() || (x.result && x.status === 'ready' && x.maskedVer === x.mver))}
+                onClick={() => copy('Copied all', p.docs.filter((x) => x.kind !== 'image' && x.text.trim()).map((x) => `=== ${x.name} ===\n${p.outputOf(x)}`).join('\n\n'))}
               >
                 Copy all
               </button>

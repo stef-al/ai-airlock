@@ -1,14 +1,16 @@
 import type { Doc, Hit } from '../engine/light';
 import type { ImageState } from '../media/image';
+import type { PdfState } from '../media/pdfdoc';
 import type { MaskRes } from '../worker/protocol';
 
 export interface DocState {
   id: string;
   name: string;
-  /** an image's text is what OCR read in it (corrections applied) */
-  kind: 'text' | 'image';
+  /** an image's text is what OCR read in it (corrections applied); a PDF's is its pages' text */
+  kind: 'text' | 'image' | 'pdf';
   text: string;
   image?: ImageState;
+  pdf?: PdfState;
   /** an image embedded in a text document (data: URI): the parent and the finding's key */
   parent?: { id: string; key: string };
   /** bumps on every edit so stale analyses can be dropped */

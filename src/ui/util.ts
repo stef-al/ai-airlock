@@ -39,6 +39,7 @@ function legacyEncoding(): string {
 export type Input =
   | { ok: true; kind: 'text'; text: string }
   | { ok: true; kind: 'image'; bytes: Uint8Array }
+  | { ok: true; kind: 'pdf'; bytes: Uint8Array }
   | { ok: false; reason: string };
 
 const startsWith = (b: Uint8Array, ...sig: number[]) => sig.every((v, i) => b[i] === v);
@@ -52,7 +53,10 @@ export async function readInput(file: File, media: boolean): Promise<Input> {
     startsWith(head, 0x89, 0x50, 0x4e, 0x47) || startsWith(head, 0xff, 0xd8, 0xff) || startsWith(head, 0x47, 0x49, 0x46, 0x38) || (startsWith(head, 0x52, 0x49, 0x46, 0x46) && startsWith(head.subarray(8), 0x57, 0x45, 0x42, 0x50)) || (startsWith(head, 0x42, 0x4d) && head.length > 26);
   const where = media ? 'is not supported yet (coming in a later version)' : 'needs airlock-media.html (the same app with images and documents)';
   if (image) return media ? { ok: true, kind: 'image', bytes: new Uint8Array(buf) } : { ok: false, reason: 'an image ' + where };
-  if (startsWith(head, 0x25, 0x50, 0x44, 0x46)) return { ok: false, reason: 'a PDF ' + where };
+  // the PDF header may follow some junk (up to 1 KB); then the file must end like a PDF too
+  const latin = (b: Uint8Array) => new TextDecoder('latin1').decode(b);
+  const pdfAt = latin(head.subarray(0, 1024)).indexOf('%PDF-');
+  if (pdfAt === 0 || (pdfAt > 0 && latin(new Uint8Array(buf.slice(-1024))).includes('%%EOF'))) return media ? { ok: true, kind: 'pdf', bytes: new Uint8Array(buf) } : { ok: false, reason: 'a PDF ' + where };
   if (startsWith(head, 0x50, 0x4b, 0x03, 0x04)) return { ok: false, reason: 'an Office or ZIP file ' + where };
   // UTF-16 (Windows PowerShell's default for Out-File and redirection) is full of zero bytes
   if (head[0] === 0xff && head[1] === 0xfe) return { ok: true, kind: 'text', text: new TextDecoder('utf-16le').decode(buf) };

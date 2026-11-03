@@ -42,3 +42,23 @@ export async function renderRedacted(image: Uint8Array, boxes: RenderBox[], mime
   const copy = image.slice();
   return media.call<RenderResult>({ type: 'render', image: copy, boxes, mime, labels }, { transfer: [copy.buffer], timeoutMs: 120_000 });
 }
+
+/**
+ * OCR and/or QR codes of decoded pixels (a rendered PDF page). `make` is called for each attempt:
+ * the bitmap is handed over to the worker.
+ */
+export async function readPixels(make: () => Promise<ImageBitmap>, langs: OcrLang[], o: { qr: boolean; ocr: boolean; upscale: boolean }): Promise<ReadResult> {
+  for (let attempt = 0; ; attempt++) {
+    if (o.ocr) await ensureInit(langs);
+    const bmp = await make();
+    try {
+      return await media.call<ReadResult>({ type: 'read', image: bmp, ...o }, { transfer: [bmp], timeoutMs: 180_000 });
+    } catch (e) {
+      if (attempt === 0 && /not initialised/.test((e as Error).message)) {
+        initKey = '';
+        continue;
+      }
+      throw e;
+    }
+  }
+}
